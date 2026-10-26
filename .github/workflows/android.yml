@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
@@ -24,12 +24,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      # GitHub's Ubuntu runner image ships the Android SDK; just accept its licences.
+      - name: Accept Android SDK licences
+        run: yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - uses: gradle/actions/setup-gradle@v4
 
@@ -39,7 +41,17 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug -PversionCode=${{ github.run_number }}
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --no-daemon --stacktrace -PversionCode=${{ github.run_number }} 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+
+      # Surface the end of the Gradle log as annotations so failures are readable without opening raw logs.
+      - name: Summarise build failure
+        if: failure()
+        run: |
+          if [ -f "$RUNNER_TEMP/gradle.log" ]; then
+            tail -n 40 "$RUNNER_TEMP/gradle.log" | while IFS= read -r line; do echo "::error::${line//%/%25}"; done
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
