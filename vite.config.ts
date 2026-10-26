@@ -33,7 +33,11 @@ function selfHostOrt(): Plugin {
   };
 }
 
+const isolation = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
+
 export default defineConfig({
+  server: { headers: isolation },
+  preview: { headers: isolation },
   plugins: [selfHostOrt()],
   build: { target: "es2022", sourcemap: true, chunkSizeWarningLimit: 1200 },
   worker: { format: "es" },

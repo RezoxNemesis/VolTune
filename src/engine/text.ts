@@ -1,9 +1,11 @@
+import { expandNumbers } from "./numbers";
+
 /**
  * Text preparation. The goal is speech that breathes: clean input, sentence-sized
  * chunks the model handles well, and a pause after each chunk that matches its punctuation.
  */
 
-export const MAX_CHARS = 20_000;
+export const MAX_CHARS = 250_000;
 /** Kokoro handles ~510 tokens per pass; staying near 220 characters keeps prosody natural and latency low. */
 export const MAX_CHUNK_CHARS = 220;
 
@@ -27,6 +29,17 @@ const ABBREVIATIONS: Array<[RegExp, string]> = [
   [/&/g, " and "],
   [/%/g, " percent"],
 ];
+
+/** Initialisms the phonemizer would otherwise read as words. Spelled letter by letter. */
+const SPELLED = new Set(["AI", "API", "CEO", "CFO", "CPU", "GPU", "CSS", "HTML", "FAQ", "PDF", "SQL", "TV", "UK", "US", "USA", "UN", "EU", "FBI", "CIA", "BBC", "CNN", "DNA", "RNA", "HR", "PC", "URL", "USB", "VPN", "SMS", "GPS", "ETA", "UI", "UX", "VR", "AR", "ML", "LLM", "IQ", "DIY", "ASAP", "FYI"]);
+
+function spellAcronyms(text: string): string {
+  return text.replace(/\b[A-Za-z]{2,5}\b/g, (w) => {
+    if (w === "OK") return "okay";
+    if (w === "PhD") return "P H D";
+    return w === w.toUpperCase() && SPELLED.has(w) ? [...w].join(" ") : w;
+  });
+}
 
 /** Tokens that end with a period but do not end a sentence. */
 const NON_TERMINAL = /\b(?:Doctor|Mister|Missus|Miss|Professor|Saint|Mr|Mrs|Ms|Dr|Prof|St|vs|No|Jr|Sr)\.$/;
@@ -53,6 +66,8 @@ export function normalize(input: string): string {
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
   for (const [re, rep] of ABBREVIATIONS) t = t.replace(re, rep);
+  t = expandNumbers(t);
+  t = spellAcronyms(t);
   t = t
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")

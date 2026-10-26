@@ -11,7 +11,7 @@ describe("normalize", () => {
   });
   it("expands abbreviations and symbols", () => {
     expect(normalize("Dr. Lee met Mr. Park vs. the clock, 50% sure & ready.")).toBe(
-      "Doctor Lee met Mister Park versus the clock, 50 percent sure and ready.",
+      "Doctor Lee met Mister Park versus the clock, fifty percent sure and ready.",
     );
   });
   it("straightens quotes and ellipses, removes control characters", () => {

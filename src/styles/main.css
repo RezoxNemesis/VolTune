@@ -395,6 +395,10 @@ body {
   flex: 0 1 180px;
 }
 
+#rhythm-field {
+  flex: 0 1 140px;
+}
+
 .select {
   position: relative;
 }

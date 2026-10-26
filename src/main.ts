@@ -1,11 +1,15 @@
 import "./styles/main.css";
 import { Capacitor } from "@capacitor/core";
-import { SpeechEngine, isSupported, type Clip, type Segment } from "./engine/client";
+import { SpeechEngine, isSupported } from "./engine/client";
 import { Player } from "./engine/player";
-import { encodeWav, SAMPLE_RATE } from "./engine/audio";
-import { MAX_CHARS, estimateSeconds, toChunks } from "./engine/text";
+import { toFloat32 } from "./engine/audio";
+import { MAX_CHARS, estimateSeconds } from "./engine/text";
 import { autoAssignVoices, parseScript } from "./engine/dialogue";
 import { DEFAULT_VOICE, VOICES, isVoiceId } from "./engine/voices";
+import { buildPlan, type PlanItem } from "./engine/plan";
+import { hashPlan, openStore, secs, type ClipMeta, type ClipStore } from "./engine/store";
+import { rechunk, wavPieces, buildWavBlob } from "./engine/export";
+import { FileSaver } from "./native/plugins";
 import { VoiceString } from "./ui/string";
 
 type Mode = "speak" | "dialogue";
@@ -15,10 +19,12 @@ interface Saved {
   texts: Record<Mode, string>;
   voice: string;
   pace: number;
+  rhythm: number;
   cast: Record<string, string>;
 }
 
 const STORE = "voltune.v1";
+const WARM = "voltune.warm";
 const SAMPLE_DIALOGUE = "Maya: Did you hear that?\nJon: Hear what? I was reading.\nMaya: Listen. It stopped, just now.\nJon: Maya, it's an old house. It's allowed to make noise.";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -40,6 +46,7 @@ const els = {
   voiceField: $("voice-field"),
   pace: $<HTMLInputElement>("pace"),
   paceOut: $("pace-out"),
+  rhythm: $<HTMLSelectElement>("rhythm"),
   speak: $<HTMLButtonElement>("speak"),
   play: $<HTMLButtonElement>("play"),
   save: $<HTMLButtonElement>("save"),
@@ -50,7 +57,7 @@ const els = {
 /* ---------- persisted settings ---------- */
 
 function loadSaved(): Saved {
-  const base: Saved = { mode: "speak", texts: { speak: "", dialogue: "" }, voice: DEFAULT_VOICE, pace: 1, cast: {} };
+  const base: Saved = { mode: "speak", texts: { speak: "", dialogue: "" }, voice: DEFAULT_VOICE, pace: 1, rhythm: 1, cast: {} };
   try {
     const raw = localStorage.getItem(STORE);
     if (!raw) return base;
@@ -60,6 +67,7 @@ function loadSaved(): Saved {
       texts: { speak: String(s.texts?.speak ?? "").slice(0, MAX_CHARS), dialogue: String(s.texts?.dialogue ?? "").slice(0, MAX_CHARS) },
       voice: typeof s.voice === "string" && isVoiceId(s.voice) ? s.voice : DEFAULT_VOICE,
       pace: typeof s.pace === "number" && s.pace >= 0.7 && s.pace <= 1.3 ? s.pace : 1,
+      rhythm: s.rhythm === 0.7 || s.rhythm === 1.35 ? s.rhythm : 1,
       cast: Object.fromEntries(Object.entries(s.cast ?? {}).filter(([, v]) => typeof v === "string" && isVoiceId(v))),
     };
   } catch {
@@ -88,14 +96,18 @@ const string = new VoiceString($<HTMLCanvasElement>("string"));
 
 let phase: "idle" | "loading" | "generating" | "ready" = "idle";
 let plan: PlanItem[] = [];
-let clips: Clip[] = [];
+let metas: ClipMeta[] = [];
 let spans: HTMLElement[] = [];
 let raf = 0;
 let runToken = 0;
+let store: ClipStore | null = null;
+let jobId = "";
+let lastActive = -1;
+let wake: { release(): Promise<void> } | null = null;
 
-interface PlanItem extends Segment {
-  speaker?: string;
-  turn: number;
+async function getStore(): Promise<ClipStore> {
+  if (!store) store = (await openStore()).store;
+  return store;
 }
 
 /* ---------- helpers ---------- */
@@ -171,34 +183,6 @@ function renderCast() {
   els.cast.hidden = state.mode !== "dialogue" || speakers.length === 0;
 }
 
-/* ---------- plan ---------- */
-
-function buildPlan(): PlanItem[] {
-  const pace = state.pace;
-  if (state.mode === "speak") {
-    return toChunks(els.text.value).map((c) => ({ text: c.text, pauseMs: c.pauseMs, voice: state.voice, speed: pace, turn: 0 }));
-  }
-  const { lines, speakers } = parseScript(els.text.value);
-  state.cast = autoAssignVoices(speakers, state.cast);
-  const items: PlanItem[] = [];
-  lines.forEach((line, turn) => {
-    const chunks = toChunks(line.text);
-    chunks.forEach((c, i) => {
-      const last = i === chunks.length - 1;
-      items.push({
-        text: c.text,
-        // A beat of silence when the speaker changes keeps exchanges from feeling clipped.
-        pauseMs: last && turn < lines.length - 1 ? Math.max(c.pauseMs, 520) : c.pauseMs,
-        voice: state.cast[line.speaker] ?? DEFAULT_VOICE,
-        speed: pace,
-        speaker: line.speaker,
-        turn,
-      });
-    });
-  });
-  return items;
-}
-
 /* ---------- stage (read-along view) ---------- */
 
 function renderStage() {
@@ -206,6 +190,7 @@ function renderStage() {
   spans = [];
   let turnEl: HTMLElement | null = null;
   let turnId = -1;
+  const frag = document.createDocumentFragment();
   plan.forEach((item, i) => {
     if (item.turn !== turnId || !turnEl) {
       turnId = item.turn;
@@ -217,7 +202,7 @@ function renderStage() {
         who.textContent = item.speaker;
         turnEl.append(who);
       }
-      els.stage.append(turnEl);
+      frag.append(turnEl);
     }
     const s = document.createElement("span");
     s.className = "s pending";
@@ -233,12 +218,13 @@ function renderStage() {
     turnEl.append(s, document.createTextNode(" "));
     spans.push(s);
   });
+  els.stage.append(frag);
 }
 
 function seekTo(i: number) {
-  const clip = clips[i];
-  if (!clip) return;
-  player.seek(clip.start);
+  const m = metas[i];
+  if (!m) return;
+  player.seek(secs(m.startSample));
   if (player.state !== "playing") player.toggle();
 }
 
@@ -250,22 +236,45 @@ function showStage(show: boolean) {
   });
 }
 
-function tick() {
-  const pos = player.position;
-  let active = -1;
-  for (let i = 0; i < clips.length; i++) {
-    if (clips[i]!.start <= pos + 0.02) active = i;
-    else break;
+/** Index of the clip playing at `pos` seconds (binary search; stays fast for thousands of clips). */
+function activeAt(pos: number): number {
+  let lo = 0;
+  let hi = metas.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (secs(metas[mid]!.startSample) <= pos + 0.02) {
+      ans = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
   }
+  return ans;
+}
+
+let shownReady = 0;
+let shownActive = -2;
+let shownState = "";
+
+function tick() {
   const st = player.state;
   const live = st === "playing" || st === "paused";
-  spans.forEach((s, i) => {
-    const ready = i < clips.length;
-    s.classList.toggle("pending", !ready);
-    s.classList.toggle("active", live && i === active);
-    s.classList.toggle("played", ready && (st === "ended" || (live && i < active)));
-    if (ready && s.tabIndex !== 0) s.tabIndex = 0;
-  });
+  const active = live ? activeAt(player.position) : -1;
+  if (active !== shownActive || st !== shownState || metas.length !== shownReady) {
+    const from = Math.max(0, Math.min(shownActive < 0 ? 0 : shownActive - 1, active < 0 ? 0 : active - 1));
+    const lo = shownState !== st || shownReady === 0 ? 0 : Math.max(0, from - 1);
+    const hi = shownState !== st ? spans.length : Math.min(spans.length, Math.max(metas.length, active + 2));
+    for (let i = lo; i < hi; i++) {
+      const s = spans[i]!;
+      const ready = i < metas.length;
+      s.classList.toggle("pending", !ready);
+      s.classList.toggle("active", live && i === active);
+      s.classList.toggle("played", ready && (st === "ended" || (live && i < active)));
+      if (ready && s.tabIndex !== 0) s.tabIndex = 0;
+    }
+    shownReady = metas.length;
+    shownActive = active;
+    shownState = st;
+  }
   if (st === "playing" && active !== lastActive) {
     lastActive = active;
     const el = spans[active];
@@ -273,16 +282,39 @@ function tick() {
   }
   raf = requestAnimationFrame(tick);
 }
-let lastActive = -1;
+
+/* ---------- keep the screen awake during long renders ---------- */
+
+async function holdAwake() {
+  try {
+    const nav = navigator as Navigator & { wakeLock?: { request(t: "screen"): Promise<{ release(): Promise<void> }> } };
+    if (!wake && nav.wakeLock) wake = await nav.wakeLock.request("screen");
+  } catch {
+    wake = null;
+  }
+}
+
+function letSleep() {
+  void wake?.release().catch(() => {});
+  wake = null;
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && phase === "generating") void holdAwake();
+});
 
 /* ---------- actions ---------- */
 
 function resetAudio() {
   player.stop();
-  clips = [];
+  metas = [];
   plan = [];
   spans = [];
+  shownReady = 0;
+  shownActive = -2;
+  shownState = "";
   cancelAnimationFrame(raf);
+  letSleep();
   els.save.disabled = true;
   els.play.disabled = true;
   els.play.dataset.playing = "false";
@@ -294,6 +326,26 @@ function setPhase(p: typeof phase) {
   els.speak.textContent = busy ? "Stop" : "Speak";
   els.speak.dataset.busy = String(busy);
   string.setMode(p === "loading" ? "thinking" : p === "generating" || player.state === "playing" ? "speaking" : "idle");
+}
+
+function fmtLong(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}` : `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function etaText(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 45) return "under a minute left";
+  const mins = Math.round(seconds / 60);
+  if (mins < 90) return `about ${mins} min left`;
+  return `about ${(mins / 60).toFixed(1)} h left`;
+}
+
+function currentPlanOptions() {
+  return { mode: state.mode, speed: state.pace, pauseScale: state.rhythm, voice: state.voice, cast: state.cast };
 }
 
 async function speak() {
@@ -319,7 +371,9 @@ async function speak() {
   resetAudio();
   lastActive = -1;
   const token = ++runToken;
-  plan = buildPlan();
+  const built = buildPlan(value, currentPlanOptions());
+  state.cast = built.cast;
+  plan = built.items;
   if (plan.length === 0) {
     setStatus("Nothing speakable found. Add some words.", "error");
     return;
@@ -329,11 +383,47 @@ async function speak() {
   renderStage();
   showStage(true);
   setPhase("loading");
-  setStatus(engine.device ? "Starting…" : "Preparing the voice engine…");
+  setStatus("Preparing…");
+
+  // Find earlier work for this exact text and settings, so an interrupted render continues and a finished one replays at once.
+  let existing: ClipMeta[] = [];
+  let startIndex = 0;
   try {
-    await player.begin();
+    const st = await getStore();
+    const hash = await hashPlan(plan);
+    const found = await st.findJob(hash);
+    if (token !== runToken) return;
+    if (found) {
+      jobId = found.id;
+      existing = await st.metas(found.id);
+      startIndex = existing.length;
+      if (startIndex < plan.length) await st.truncate(found.id, startIndex);
+    } else {
+      jobId = `j${Date.now().toString(36)}`;
+      await st.startJob({ id: jobId, planHash: hash, total: plan.length, createdAt: Date.now() });
+    }
+  } catch {
+    failed("Couldn’t prepare storage for the audio. Free some space and try again.");
+    return;
+  }
+  const st = store!;
+  const id = jobId;
+  metas = [...existing];
+  const loader = async (i: number) => toFloat32(await st.get(id, i));
+  const complete = startIndex >= plan.length;
+
+  try {
+    await player.begin(loader, existing);
     string.setAnalyser(player.analyserNode);
-    await engine.load();
+    if (!complete) {
+      setStatus(engine.device ? "Starting…" : "Preparing the voice engine…");
+      await engine.load();
+      try {
+        localStorage.setItem(WARM, "1");
+      } catch {
+        /* optional */
+      }
+    }
     if (token !== runToken) return;
   } catch (e) {
     if (token !== runToken) return;
@@ -341,49 +431,77 @@ async function speak() {
     return;
   }
   els.load.hidden = true;
-  setPhase("generating");
-  setStatus("Speaking…");
   cancelAnimationFrame(raf);
   raf = requestAnimationFrame(tick);
-  let sawFirst = false;
-  await engine.generate(plan, {
-    onClip(clip, done, total) {
-      if (token !== runToken) return;
-      clips.push(clip);
-      player.add(clip);
-      if (!sawFirst) {
-        sawFirst = true;
-        els.play.disabled = false;
-        els.play.dataset.playing = "true";
-      }
-      setStatus(done < total ? `Speaking · ${done} of ${total} sentences ready` : "Finishing…");
-    },
-    onDone() {
-      player.finish();
-      setPhase("ready");
-      els.save.disabled = false;
-      setStatus(`Ready · ${fmt(player.duration)}`);
-    },
-    onCancel() {
-      player.finish();
-      setPhase(clips.length ? "ready" : "idle");
-      els.save.disabled = clips.length === 0;
-      setStatus(clips.length ? `Stopped · ${fmt(player.duration)} generated` : "");
-      if (!clips.length) showStage(false);
-    },
-    onError(message) {
-      failed(message);
-    },
-  }).catch((e: unknown) => failed(e instanceof Error ? e.message : "Speech generation stopped unexpectedly. Try again."));
+  if (existing.length > 0) {
+    els.play.disabled = false;
+    els.play.dataset.playing = "true";
+  }
+  if (complete) {
+    player.finish();
+    setPhase("ready");
+    els.save.disabled = false;
+    setStatus(`Ready · ${fmtLong(player.duration)}`);
+    return;
+  }
+
+  setPhase("generating");
+  void holdAwake();
+  setStatus(existing.length ? "Resuming…" : "Speaking…");
+  const totalChars = plan.reduce((n, p) => n + p.text.length, 0);
+  const doneChars0 = plan.slice(0, startIndex).reduce((n, p) => n + p.text.length, 0);
+  const t0 = performance.now();
+  let sawFirst = existing.length > 0;
+  await engine
+    .generate(plan, { store: st, jobId: id, startIndex, existing }, {
+      onClip(meta, done, total) {
+        if (token !== runToken) return;
+        metas.push(meta);
+        player.add(meta);
+        if (!sawFirst) {
+          sawFirst = true;
+          els.play.disabled = false;
+          els.play.dataset.playing = "true";
+        }
+        const doneChars = plan.slice(0, done).reduce((n, p) => n + p.text.length, 0);
+        const elapsed = (performance.now() - t0) / 1000;
+        const rate = (doneChars - doneChars0) / Math.max(0.5, elapsed);
+        const eta = rate > 0 ? (totalChars - doneChars) / rate : NaN;
+        const pct = Math.round((done / total) * 100);
+        const where = engine.device === "native" ? "" : engine.device === "webgpu" ? " · GPU" : "";
+        setStatus(done < total ? `Speaking · ${pct}%${total > 20 && done > 4 ? ` · ${etaText(eta)}` : ""}${where}` : "Finishing…");
+      },
+      onDone() {
+        if (token !== runToken) return;
+        player.finish();
+        letSleep();
+        setPhase("ready");
+        els.save.disabled = false;
+        setStatus(`Ready · ${fmtLong(player.duration)}`);
+      },
+      onCancel() {
+        player.finish();
+        letSleep();
+        setPhase(metas.length ? "ready" : "idle");
+        els.save.disabled = metas.length === 0;
+        setStatus(metas.length ? `Stopped · ${fmtLong(player.duration)} so far. Press Speak to continue.` : "");
+        if (!metas.length) showStage(false);
+      },
+      onError(message) {
+        failed(message);
+      },
+    })
+    .catch((e: unknown) => failed(e instanceof Error ? e.message : "Speech generation stopped unexpectedly. Try again."));
 }
 
 function failed(message: string) {
   player.cancelGeneration();
-  const hadAudio = clips.length > 0;
+  letSleep();
+  const hadAudio = metas.length > 0;
   setPhase(hadAudio ? "ready" : "idle");
   els.save.disabled = !hadAudio;
   els.load.hidden = true;
-  setStatus(message, "error");
+  setStatus(hadAudio ? `${message} What’s done so far is kept; press Speak to continue.` : message, "error");
   if (!hadAudio) showStage(false);
 }
 
@@ -397,45 +515,78 @@ function editText() {
   els.text.focus();
 }
 
-function toBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function toBase64(bytes: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(bin);
 }
 
-/** WebViews cannot download blob URLs, so the Android app writes a file and opens the share sheet. */
-async function saveNative(wav: ArrayBuffer, name: string) {
-  const [{ Filesystem, Directory }, { Share }] = await Promise.all([import("@capacitor/filesystem"), import("@capacitor/share")]);
-  const { uri } = await Filesystem.writeFile({ path: name, data: toBase64(wav), directory: Directory.Cache });
-  await Share.share({ title: "VolTune audio", dialogTitle: "Save or share audio", files: [uri] });
-}
-
-async function save() {
-  if (!player.hasAudio) return;
-  const wav = encodeWav(player.render(), SAMPLE_RATE);
+function fileName(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  const name = `voltune-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.wav`;
-  if (Capacitor.isNativePlatform()) {
-    try {
-      await saveNative(wav, name);
-      setStatus("Audio ready to save or share.");
-    } catch (e) {
-      // Dismissing the share sheet is not an error.
-      if (!/cancel/i.test(e instanceof Error ? e.message : String(e))) setStatus("Couldn’t save the audio file. Try again.", "error");
+  return `voltune-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.wav`;
+}
+
+/**
+ * Android: stream the WAV into a temporary file in small pieces (an hour of audio never sits in memory),
+ * then open the system “Save as” dialog so the person chooses where it goes.
+ */
+async function saveNative(st: ClipStore, id: string, all: readonly ClipMeta[], name: string, progress: (f: number) => void) {
+  const { Filesystem, Directory } = await import("@capacitor/filesystem");
+  const tmp = `export-${Date.now()}.wav`;
+  const bytesTotal = 44 + (all.length ? (all[all.length - 1]!.startSample + all[all.length - 1]!.samples) * 2 : 0);
+  let written = 0;
+  let uri = "";
+  try {
+    for await (const chunk of rechunk(wavPieces(st, id, all), 1 << 20)) {
+      const data = toBase64(chunk);
+      if (written === 0) uri = (await Filesystem.writeFile({ path: tmp, data, directory: Directory.Cache })).uri;
+      else await Filesystem.appendFile({ path: tmp, data, directory: Directory.Cache });
+      written += chunk.length;
+      progress(Math.min(1, written / bytesTotal));
     }
-    return;
+    await FileSaver.save({ path: uri, name, mime: "audio/wav" });
+  } finally {
+    await Filesystem.deleteFile({ path: tmp, directory: Directory.Cache }).catch(() => {});
   }
-  const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  setStatus("Saved as a WAV file.");
+}
+
+let saving = false;
+
+async function save() {
+  if (!metas.length || !store || saving) return;
+  saving = true;
+  els.save.disabled = true;
+  const name = fileName();
+  const snapshot = [...metas];
+  const st = store;
+  const id = jobId;
+  try {
+    if (Capacitor.isNativePlatform()) {
+      setStatus("Preparing the file…");
+      await saveNative(st, id, snapshot, name, (f) => setStatus(`Preparing the file · ${Math.round(f * 100)}%`));
+      setStatus("Saved.");
+    } else {
+      setStatus("Preparing the file…");
+      const blob = await buildWavBlob(st, id, snapshot);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setStatus(`Saved as ${name}`);
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/cancel/i.test(msg)) setStatus(phase === "ready" ? `Ready · ${fmtLong(player.duration)}` : "");
+    else setStatus("Couldn’t save the audio file. Check free space and try again.", "error");
+  } finally {
+    saving = false;
+    els.save.disabled = metas.length === 0;
+  }
 }
 
 /* ---------- mode ---------- */
@@ -451,7 +602,10 @@ function applyMode(mode: Mode, focusTab = false) {
   const changed = state.mode !== mode;
   if (changed) {
     state.texts[state.mode] = els.text.value;
-    if (phase === "loading" || phase === "generating") engine.cancel();
+    if (phase === "loading" || phase === "generating") {
+      runToken++;
+      engine.cancel();
+    }
     resetAudio();
     setPhase("idle");
     setStatus("");
@@ -512,6 +666,11 @@ function init() {
     state.voice = els.voice.value;
     persist();
   });
+  els.rhythm.value = String(state.rhythm);
+  els.rhythm.addEventListener("change", () => {
+    state.rhythm = Number(els.rhythm.value);
+    persist();
+  });
   els.pace.addEventListener("input", () => {
     state.pace = Number(els.pace.value);
     els.paceOut.textContent = `${state.pace.toFixed(2)}×`;
@@ -567,6 +726,13 @@ function init() {
     const mb = (n: number) => `${Math.round(n / 1_048_576)} MB`;
     setStatus(`Downloading the voice model · ${mb(loaded)} of ${mb(total)}. This happens once.`);
   };
+
+  // If the voice has been downloaded before, warm it up in the background so the first Speak is quick.
+  try {
+    if (isSupported() && localStorage.getItem(WARM) === "1") window.setTimeout(() => void engine.load().catch(() => {}), 1200);
+  } catch {
+    /* optional */
+  }
 
   window.addEventListener("resize", placeInk);
   document.fonts?.ready.then(placeInk);

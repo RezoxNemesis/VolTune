@@ -105,3 +105,19 @@ export function encodeWav(pcm: Float32Array, sampleRate = SAMPLE_RATE): ArrayBuf
   }
   return buf;
 }
+
+/** Quantise float PCM to 16-bit for compact storage and export. */
+export function toInt16(pcm: Float32Array): Int16Array {
+  const out = new Int16Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) {
+    const s = Math.max(-1, Math.min(1, pcm[i]!));
+    out[i] = s < 0 ? Math.round(s * 0x8000) : Math.round(s * 0x7fff);
+  }
+  return out;
+}
+
+export function toFloat32(pcm: Int16Array): Float32Array {
+  const out = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) out[i] = pcm[i]! / (pcm[i]! < 0 ? 0x8000 : 0x7fff);
+  return out;
+}

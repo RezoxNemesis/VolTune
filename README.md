@@ -65,6 +65,15 @@ npm run android:open      # or open the project in Android Studio
 
 On Android, **Save audio** opens the share sheet instead of downloading, because WebViews cannot download blob URLs. WebGPU is not generally available in Android WebView, so the app uses the WebAssembly path (about 90 MB model download on first run).
 
+## Long narration, speed and saving
+
+- **Up to 250,000 characters** (several hours) per piece. Finished clips are stored on the device (IndexedDB) rather than in memory, and only the next ~25 seconds are decoded for playback.
+- **Resumable.** If the screen locks, the app closes or you press Stop, pressing Speak again with the same text and settings continues where it left off; a finished piece replays instantly.
+- **Rhythm** (Brisk / Natural / Relaxed) scales the pauses between phrases, with small repeatable variation so long passages do not sound metronomic. Dialogue adds a beat when the speaker changes.
+- **Numbers, dates, money, times and acronyms** are spoken as words ("$5.50", "March 5th", "3:30 pm", "NASA").
+- **Speed.** The first phrase is kept short so audio starts sooner. The page is cross-origin isolated (COOP/COEP headers in `public/_headers`) so the browser engine can use several threads. The Android app runs the full-precision model in native ONNX Runtime, falling back to the browser engine if that fails.
+- **Saving.** On the web, the full WAV is assembled from stored clips and downloaded. In the Android app it is streamed to a temporary file and then the system "Save as" dialog lets you choose the location.
+
 ## How it is built
 
 ```

@@ -1,5 +1,8 @@
 import type { Device, FromWorker, Job, ToWorker } from "./protocol";
-import { polish, SAMPLE_RATE } from "./audio";
+import { polish, SAMPLE_RATE, toInt16 } from "./audio";
+import { nextStartSample, type ClipMeta, type ClipStore } from "./store";
+import { Capacitor } from "@capacitor/core";
+import { NATIVE_MODEL_FILE, NATIVE_MODEL_URL, NativeTts, decodePcm16 } from "../native/plugins";
 
 export interface Progress {
   loaded: number;
@@ -14,21 +17,24 @@ export interface Segment {
   speed: number;
 }
 
-export interface Clip {
-  /** Seconds from the start of the timeline. */
-  start: number;
-  pcm: Float32Array;
-  segment: Segment;
+export interface GenerateOptions {
+  store: ClipStore;
+  jobId: string;
+  /** Resume from this segment; earlier clips are already in the store. */
+  startIndex?: number;
+  /** Clips already stored for this job, used to place new ones on the timeline. */
+  existing?: readonly ClipMeta[];
 }
 
 export interface GenerateHandlers {
-  onClip(clip: Clip, done: number, total: number): void;
+  onClip(meta: ClipMeta, done: number, total: number): void;
   onDone(): void;
   onCancel(): void;
   onError(message: string): void;
 }
 
-export async function detectDevice(): Promise<Device> {
+export async function detectDevice(allowNative = true): Promise<Device> {
+  if (allowNative && Capacitor.getPlatform() === "android" && Capacitor.isPluginAvailable("NativeTts")) return "native";
   try {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown | null> } }).gpu;
     if (gpu && (await gpu.requestAdapter())) return "webgpu";
@@ -62,45 +68,119 @@ export class SpeechEngine {
     return w;
   }
 
-  private send(msg: ToWorker) {
-    this.ensureWorker().postMessage(msg);
+  private send(msg: ToWorker, transfer: Transferable[] = []) {
+    this.ensureWorker().postMessage(msg, transfer);
   }
+
+  private nativeOk = true;
+  private retried = false;
+  private jobs: Job[] = [];
 
   /** Download (first run) and warm the model. Safe to call repeatedly. */
   load(): Promise<Device> {
     if (this.ready) return this.ready;
-    this.ready = new Promise<Device>((resolve, reject) => {
-      this.resolveReady = resolve;
-      this.rejectReady = reject;
+    const p = (async () => {
+      let device = await detectDevice(this.nativeOk);
+      if (device === "native") {
+        try {
+          await this.initNative();
+        } catch {
+          this.nativeOk = false;
+          device = await detectDevice(false);
+        }
+      }
+      return new Promise<Device>((resolve, reject) => {
+        this.resolveReady = resolve;
+        this.rejectReady = reject;
+        this.send({ type: "init", device });
+      });
+    })();
+    this.ready = p;
+    p.catch(() => {
+      if (this.ready === p) this.ready = null;
     });
-    this.ready.catch(() => {});
-    detectDevice().then((device) => this.send({ type: "init", device }));
-    return this.ready;
+    return p;
   }
 
-  private timeline = 0;
-  private clips = new Map<number, Segment & { index: number }>();
+  /** Download the full-precision model to app storage and load it into native ONNX Runtime. */
+  private async initNative(): Promise<void> {
+    const handle = await NativeTts.addListener("downloadProgress", (p) => this.onProgress({ loaded: p.loaded, total: p.total, file: "native-model" }));
+    try {
+      const threads = Math.max(2, Math.min(4, navigator.hardwareConcurrency || 4));
+      await NativeTts.init({ modelUrl: NATIVE_MODEL_URL, fileName: NATIVE_MODEL_FILE, threads });
+    } finally {
+      await handle.remove();
+    }
+  }
+
+  private async runNative(msg: Extract<FromWorker, { type: "infer" }>) {
+    try {
+      const r = await NativeTts.infer({ ids: Array.from(msg.ids, Number), style: Array.from(msg.style), speed: msg.speed });
+      const pcm = decodePcm16(r.pcm);
+      this.send({ type: "inferResult", reqId: msg.reqId, pcm }, [pcm.buffer]);
+    } catch (e) {
+      this.send({ type: "inferResult", reqId: msg.reqId, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  /** The native engine misbehaved: continue the same job on the browser engine instead. */
+  private async retryOnWeb(): Promise<boolean> {
+    const a = this.active;
+    const o = this.opts;
+    if (!a || !o || this.retried || this.device !== "native") return false;
+    this.retried = true;
+    this.nativeOk = false;
+    this.worker?.terminate();
+    this.worker = null;
+    this.ready = null;
+    this.device = null;
+    try {
+      await this.load();
+    } catch {
+      return false;
+    }
+    const remaining = this.jobs.filter((j) => j.index >= this.cursor);
+    if (this.active !== a) return true;
+    this.send({ type: "generate", id: a.id, jobs: remaining });
+    return true;
+  }
+
+  private plan: Segment[] = [];
   private total = 0;
   private received = 0;
   private cursor = 0;
+  private startSample = 0;
+  private opts: GenerateOptions | null = null;
   private pending = new Map<number, Float32Array>();
+  private chain: Promise<void> = Promise.resolve();
 
-  /** Synthesize segments in order; clips arrive with their start time already computed. */
-  async generate(segments: Segment[], handlers: GenerateHandlers): Promise<void> {
+  /** Synthesize segments in order, storing each clip and reporting its place on the timeline. */
+  async generate(segments: Segment[], opts: GenerateOptions, handlers: GenerateHandlers): Promise<void> {
     if (this.active) this.cancel();
     await this.load();
     const id = this.nextId++;
     this.active = { id, handlers };
-    this.timeline = 0;
-    this.cursor = 0;
-    this.received = 0;
+    this.opts = opts;
+    this.plan = segments;
     this.total = segments.length;
-    this.clips.clear();
+    const first = opts.startIndex ?? 0;
+    this.cursor = first;
+    this.received = first;
+    this.startSample = nextStartSample(opts.existing ?? []);
     this.pending.clear();
-    const jobs: Job[] = segments.map((s, index) => {
-      this.clips.set(index, { ...s, index });
-      return { index, text: s.text, voice: s.voice, speed: s.speed };
-    });
+    this.chain = Promise.resolve();
+    const jobs: Job[] = [];
+    for (let index = first; index < segments.length; index++) {
+      const s = segments[index]!;
+      jobs.push({ index, text: s.text, voice: s.voice, speed: s.speed });
+    }
+    if (jobs.length === 0) {
+      this.active = null;
+      handlers.onDone();
+      return;
+    }
+    this.jobs = jobs;
+    this.retried = false;
     this.send({ type: "generate", id, jobs });
   }
 
@@ -114,49 +194,80 @@ export class SpeechEngine {
       case "progress":
         this.onProgress({ loaded: msg.loaded, total: msg.total, file: msg.file });
         break;
+      case "infer":
+        void this.runNative(msg);
+        break;
       case "ready":
         this.device = msg.device;
         this.resolveReady?.(msg.device);
         break;
       case "chunk": {
-        if (!this.active || msg.id !== this.active.id) return;
-        // Chunks are produced in order, but guard against reordering anyway.
-        this.pending.set(msg.index, polish(msg.pcm, msg.sampleRate || SAMPLE_RATE));
-        while (this.pending.has(this.cursor)) {
-          const pcm = this.pending.get(this.cursor)!;
-          this.pending.delete(this.cursor);
-          const segment = this.clips.get(this.cursor)!;
-          const clip: Clip = { start: this.timeline, pcm, segment };
-          this.timeline += pcm.length / SAMPLE_RATE + segment.pauseMs / 1000;
-          this.cursor++;
-          this.received++;
-          this.active.handlers.onClip(clip, this.received, this.total);
-        }
+        const a = this.active;
+        if (!a || msg.id !== a.id) return;
+        const rate = msg.sampleRate || SAMPLE_RATE;
+        this.pending.set(msg.index, polish(msg.pcm, rate));
+        this.chain = this.chain.then(() => this.flush(a.id)).catch((e) => this.fail(e instanceof Error ? e.message : "Storage failed", "storage"));
         break;
       }
       case "done": {
         const a = this.active;
         if (a && a.id === msg.id) {
-          this.active = null;
-          a.handlers.onDone();
+          this.chain = this.chain.then(() => {
+            if (this.active === a) {
+              this.active = null;
+              a.handlers.onDone();
+            }
+          });
         }
         break;
       }
       case "cancelled": {
         const a = this.active;
         if (a && a.id === msg.id) {
-          this.active = null;
-          a.handlers.onCancel();
+          this.chain = this.chain.then(() => {
+            if (this.active === a) {
+              this.active = null;
+              a.handlers.onCancel();
+            }
+          });
         }
         break;
       }
       case "error":
-        this.fail(msg.message, msg.stage);
+        if (msg.stage === "generate" && this.device === "native") {
+          void this.retryOnWeb().then((ok) => {
+            if (!ok) this.fail(msg.message, msg.stage);
+          });
+        } else this.fail(msg.message, msg.stage);
         break;
     }
   }
 
-  private fail(message: string, stage: "init" | "generate") {
+  /** Write finished clips to storage in order, then announce them. */
+  private async flush(id: number): Promise<void> {
+    const a = this.active;
+    const o = this.opts;
+    if (!a || a.id !== id || !o) return;
+    while (this.pending.has(this.cursor)) {
+      const pcm = this.pending.get(this.cursor)!;
+      this.pending.delete(this.cursor);
+      const seg = this.plan[this.cursor]!;
+      const meta: ClipMeta = {
+        index: this.cursor,
+        startSample: this.startSample,
+        samples: pcm.length,
+        pauseSamples: Math.round((seg.pauseMs / 1000) * SAMPLE_RATE),
+      };
+      await o.store.put(o.jobId, meta, toInt16(pcm));
+      if (this.active !== a) return;
+      this.startSample += meta.samples + meta.pauseSamples;
+      this.cursor++;
+      this.received++;
+      a.handlers.onClip(meta, this.received, this.total);
+    }
+  }
+
+  private fail(message: string, stage: "init" | "generate" | "storage") {
     if (stage === "init") {
       this.rejectReady?.(new Error(friendlyError(message, stage)));
       this.ready = null;
@@ -165,6 +276,7 @@ export class SpeechEngine {
     }
     const a = this.active;
     this.active = null;
+    if (stage === "storage") this.send({ type: "cancel", id: a?.id ?? 0 });
     a?.handlers.onError(friendlyError(message, stage));
   }
 
@@ -173,7 +285,8 @@ export class SpeechEngine {
   }
 }
 
-export function friendlyError(message: string, stage: "init" | "generate"): string {
+export function friendlyError(message: string, stage: "init" | "generate" | "storage"): string {
+  if (stage === "storage") return "Couldn’t save the audio on this device. Free some space and try again.";
   if (/fetch|network|failed to load|load failed|NetworkError/i.test(message)) {
     return "The voice model could not be downloaded. Check your connection and try again.";
   }
