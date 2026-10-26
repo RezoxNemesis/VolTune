@@ -1,4 +1,5 @@
 import "./styles/main.css";
+import { Capacitor } from "@capacitor/core";
 import { SpeechEngine, isSupported, type Clip, type Segment } from "./engine/client";
 import { Player } from "./engine/player";
 import { encodeWav, SAMPLE_RATE } from "./engine/audio";
@@ -396,15 +397,40 @@ function editText() {
   els.text.focus();
 }
 
-function save() {
+function toBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
+/** WebViews cannot download blob URLs, so the Android app writes a file and opens the share sheet. */
+async function saveNative(wav: ArrayBuffer, name: string) {
+  const [{ Filesystem, Directory }, { Share }] = await Promise.all([import("@capacitor/filesystem"), import("@capacitor/share")]);
+  const { uri } = await Filesystem.writeFile({ path: name, data: toBase64(wav), directory: Directory.Cache });
+  await Share.share({ title: "VolTune audio", dialogTitle: "Save or share audio", files: [uri] });
+}
+
+async function save() {
   if (!player.hasAudio) return;
-  const blob = new Blob([encodeWav(player.render(), SAMPLE_RATE)], { type: "audio/wav" });
-  const url = URL.createObjectURL(blob);
+  const wav = encodeWav(player.render(), SAMPLE_RATE);
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
+  const name = `voltune-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.wav`;
+  if (Capacitor.isNativePlatform()) {
+    try {
+      await saveNative(wav, name);
+      setStatus("Audio ready to save or share.");
+    } catch (e) {
+      // Dismissing the share sheet is not an error.
+      if (!/cancel/i.test(e instanceof Error ? e.message : String(e))) setStatus("Couldn’t save the audio file. Try again.", "error");
+    }
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `voltune-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.wav`;
+  a.download = name;
   document.body.append(a);
   a.click();
   a.remove();
@@ -494,7 +520,7 @@ function init() {
   });
   els.speak.addEventListener("click", () => void speak());
   els.edit.addEventListener("click", editText);
-  els.save.addEventListener("click", save);
+  els.save.addEventListener("click", () => void save());
   els.play.addEventListener("click", () => player.toggle());
 
   els.tabs.addEventListener("click", (e) => {

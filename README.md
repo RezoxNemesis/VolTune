@@ -47,6 +47,24 @@ npm run build
 - The ONNX Runtime WebAssembly files are served from your own origin under `/ort/`, so the page loads no third-party scripts. The largest file is about 21 MB, under Cloudflare Pages' 25 MB per-file limit.
 - The only external request at runtime is the one-time model download from `huggingface.co`, which the browser then caches. To avoid that dependency, host the model files yourself and change `MODEL_ID` handling in `src/engine/worker.ts`.
 
+## Android app
+
+The `android/` folder is a native Android project (Capacitor 8) that bundles the same web app, so the speech model runs on the phone with no server. App id `com.voltune.app`, Android 7.0 (API 24) and newer.
+
+**Get an APK without installing anything:** push to `main` (or run the *Android* workflow from the Actions tab). The build uploads `voltune-debug-apk` as a workflow artifact. Download it, copy it to the phone and install it (allow installs from your file manager or browser when asked).
+
+**Build locally** (needs JDK 21 and the Android SDK, for example via Android Studio):
+
+```bash
+npm install
+npm run android:debug     # APK at android/app/build/outputs/apk/debug/app-debug.apk
+npm run android:open      # or open the project in Android Studio
+```
+
+**Signed release APK:** create a keystore, then add these repository secrets: `ANDROID_KEYSTORE_BASE64` (the keystore, base64-encoded), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Pushing a tag such as `v1.0.0` then builds a signed `app-release.apk` and attaches it to a GitHub release. Keep the keystore safe: updates must be signed with the same key.
+
+On Android, **Save audio** opens the share sheet instead of downloading, because WebViews cannot download blob URLs. WebGPU is not generally available in Android WebView, so the app uses the WebAssembly path (about 90 MB model download on first run).
+
 ## How it is built
 
 ```
@@ -61,6 +79,7 @@ src/
     player.ts     gapless Web Audio timeline with pause and seek
     protocol.ts   messages between UI and worker
   ui/string.ts    the live waveform line
+android/          Capacitor Android project (generated assets are not committed)
   styles/main.css design tokens and layout
   main.ts         application wiring
 ```
