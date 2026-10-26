@@ -1,0 +1,15 @@
+{
+  "name": "VolTune",
+  "short_name": "VolTune",
+  "description": "Natural text to speech and dialogue that runs privately in your browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0c1220",
+  "theme_color": "#0c1220",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
