@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>VolTune — natural text to speech</title>
     <meta name="description" content="Turn text and dialogue into natural, human-sounding speech. Runs entirely in your browser: nothing is uploaded." />
-    <meta name="theme-color" content="#EEF0F3" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0C1220" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#DDE5F4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070B17" media="(prefers-color-scheme: dark)" />
     <meta name="color-scheme" content="light dark" />
     <meta property="og:title" content="VolTune" />
     <meta property="og:description" content="Natural text to speech and dialogue, running privately in your browser." />
@@ -18,8 +18,9 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
+    <div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="app" id="app">
-      <header class="top">
+      <header class="top glass">
         <a class="brand" href="/" aria-label="VolTune home">
           <svg class="mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true">
             <path class="mark-v" d="M5 7 L16 24 L27 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />
@@ -41,7 +42,7 @@
           <canvas id="string"></canvas>
         </div>
 
-        <section class="panel" id="panel" role="tabpanel" aria-labelledby="tab-speak">
+        <section class="panel glass" id="panel" role="tabpanel" aria-labelledby="tab-speak">
           <div class="editor" id="editor">
             <label class="sr-only" for="text">Text to speak</label>
             <textarea id="text" class="script" spellcheck="true" rows="5" maxlength="250000" placeholder="Type or paste what you want to hear."></textarea>
@@ -58,7 +59,7 @@
           </div>
         </div>
 
-        <div class="controls" id="controls">
+        <div class="controls glass" id="controls">
           <div class="field" id="voice-field">
             <label for="voice">Voice</label>
             <div class="select"><select id="voice"></select></div>

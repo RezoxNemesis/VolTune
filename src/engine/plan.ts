@@ -1,5 +1,7 @@
 import { autoAssignVoices, parseScript } from "./dialogue";
 import { splitLong, toChunks } from "./text";
+import { devanagariShare } from "./hindi";
+import { englishVoiceFor, hindiVoiceFor, isHindiVoice } from "./voices";
 
 export interface PlanItem {
   text: string;
@@ -44,11 +46,19 @@ export function quickStart(items: PlanItem[], pauseScale: number, max = FIRST_MA
   return [...head, ...items.slice(1)];
 }
 
+/** Pick a voice that can actually read the text: Hindi voices for Devanagari, English voices for Latin script. */
+export function voiceForText(voice: string, text: string): string {
+  const share = devanagariShare(text);
+  if (share >= 0.3) return hindiVoiceFor(voice);
+  if (share === 0 && isHindiVoice(voice) && /[A-Za-z]{2}/.test(text)) return englishVoiceFor(voice);
+  return voice;
+}
+
 export function buildPlan(input: string, o: PlanOptions): { items: PlanItem[]; cast: Record<string, string> } {
   let items: PlanItem[] = [];
   let cast = o.cast;
   if (o.mode === "speak") {
-    items = toChunks(input).map((c) => ({ text: c.text, pauseMs: c.pauseMs, voice: o.voice, speed: o.speed, turn: 0 }));
+    items = toChunks(input).map((c) => ({ text: c.text, pauseMs: c.pauseMs, voice: voiceForText(o.voice, c.text), speed: o.speed, turn: 0 }));
   } else {
     const { lines, speakers } = parseScript(input);
     cast = autoAssignVoices(speakers, o.cast);
@@ -60,7 +70,7 @@ export function buildPlan(input: string, o: PlanOptions): { items: PlanItem[]; c
           text: c.text,
           // A beat of silence when the speaker changes keeps exchanges from feeling clipped.
           pauseMs: last && turn < lines.length - 1 ? Math.max(c.pauseMs, 520) : c.pauseMs,
-          voice: cast[line.speaker] ?? o.voice,
+          voice: voiceForText(cast[line.speaker] ?? o.voice, c.text),
           speed: o.speed,
           speaker: line.speaker,
           turn,

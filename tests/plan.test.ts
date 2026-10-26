@@ -62,3 +62,23 @@ describe("buildPlan (dialogue)", () => {
     expect(items[1]!.voice).toBe("bm_fable");
   });
 });
+
+import { dueClips } from "../src/engine/player";
+import type { ClipMeta } from "../src/engine/store";
+
+describe("dueClips (no sentence plays twice)", () => {
+  const R = 24_000;
+  const metas: ClipMeta[] = [0, 1, 2, 3].map((i) => ({ index: i, startSample: i * 3 * R, samples: 2 * R, pauseSamples: R }));
+  it("returns clips in the window", () => {
+    expect(dueClips(metas, new Set(), 0, 5).map((m) => m.index)).toEqual([0, 1]);
+  });
+  it("never returns a clip that was already scheduled, even after it finished", () => {
+    const scheduled = new Set([0, 1]);
+    // Playback is now inside clip 2; clips 0 and 1 have ended and must not come back.
+    expect(dueClips(metas, scheduled, 6.5, 20).map((m) => m.index)).toEqual([2, 3]);
+    expect(dueClips(metas, new Set([0, 1, 2, 3]), 0, 20)).toEqual([]);
+  });
+  it("skips clips that are already behind the playhead", () => {
+    expect(dueClips(metas, new Set(), 7, 30).map((m) => m.index)).toEqual([2, 3]);
+  });
+});

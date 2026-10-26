@@ -144,16 +144,20 @@ function updateCount() {
 
 function voiceOptions(select: HTMLSelectElement, selected: string) {
   select.replaceChildren();
-  for (const gender of ["Female", "Male"] as const) {
-    const group = document.createElement("optgroup");
-    group.label = gender;
-    for (const v of VOICES.filter((x) => x.gender === gender)) {
-      const o = document.createElement("option");
-      o.value = v.id;
-      o.textContent = `${v.name} · ${v.accent} · ${v.tone}`;
-      group.append(o);
+  for (const lang of ["en", "hi"] as const) {
+    for (const gender of ["Female", "Male"] as const) {
+      const list = VOICES.filter((x) => x.lang === lang && x.gender === gender);
+      if (list.length === 0) continue;
+      const group = document.createElement("optgroup");
+      group.label = `${lang === "hi" ? "Hindi · हिन्दी" : "English"} · ${gender}`;
+      for (const v of list) {
+        const o = document.createElement("option");
+        o.value = v.id;
+        o.textContent = `${v.name} · ${v.accent} · ${v.tone}`;
+        group.append(o);
+      }
+      select.append(group);
     }
-    select.append(group);
   }
   select.value = selected;
 }

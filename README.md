@@ -69,6 +69,7 @@ On Android, **Save audio** opens the share sheet instead of downloading, because
 
 - **Up to 250,000 characters** (several hours) per piece. Finished clips are stored on the device (IndexedDB) rather than in memory, and only the next ~25 seconds are decoded for playback.
 - **Resumable.** If the screen locks, the app closes or you press Stop, pressing Speak again with the same text and settings continues where it left off; a finished piece replays instantly.
+- **Hindi.** Four Hindi voices (Alpha, Beta, Omega, Psi). Devanagari text is converted to speech sounds by a built-in rule-based converter (schwa deletion, nasalisation, conjuncts, Hindi number words, danda sentence breaks) because the bundled phonemizer only knows English. Mixed Hindi/English lines work; a voice is chosen automatically to match the script. Kokoro rates its Hindi voices below its best English ones, so expect good but not flawless Hindi.
 - **Rhythm** (Brisk / Natural / Relaxed) scales the pauses between phrases, with small repeatable variation so long passages do not sound metronomic. Dialogue adds a beat when the speaker changes.
 - **Numbers, dates, money, times and acronyms** are spoken as words ("$5.50", "March 5th", "3:30 pm", "NASA").
 - **Speed.** The first phrase is kept short so audio starts sooner. The page is cross-origin isolated (COOP/COEP headers in `public/_headers`) so the browser engine can use several threads. The Android app runs the full-precision model in native ONNX Runtime, falling back to the browser engine if that fails.

@@ -1,4 +1,5 @@
 import { expandNumbers } from "./numbers";
+import { hasDevanagari, hindiNormalize } from "./hindi";
 
 /**
  * Text preparation. The goal is speech that breathes: clean input, sentence-sized
@@ -65,9 +66,16 @@ export function normalize(input: string): string {
     .replace(/[​-‍﻿]/g, "")
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
-  for (const [re, rep] of ABBREVIATIONS) t = t.replace(re, rep);
-  t = expandNumbers(t);
-  t = spellAcronyms(t);
+  // Hindi lines get Hindi number words; everything else gets the English treatment.
+  t = t
+    .split("\n")
+    .map((line) => {
+      if (hasDevanagari(line)) return hindiNormalize(line);
+      let l = line;
+      for (const [re, rep] of ABBREVIATIONS) l = l.replace(re, rep);
+      return spellAcronyms(expandNumbers(l));
+    })
+    .join("\n");
   t = t
     .replace(/[ \t]+/g, " ")
     .replace(/ *\n */g, "\n")
@@ -84,7 +92,7 @@ export function pauseAfter(text: string, paragraphEnd: boolean): number {
   if (/\.\.\.["')\]]?$/.test(trimmed)) ms = 520;
   else if (/\?["')\]]?$/.test(trimmed)) ms = 440;
   else if (/!["')\]]?$/.test(trimmed)) ms = 400;
-  else if (/[.]["')\]]?$/.test(trimmed)) ms = 380;
+  else if (/[.।॥]["')\]]?$/.test(trimmed)) ms = 380;
   else if (/[:;—–-]["')\]]?$/.test(trimmed)) ms = 260;
   else if (/,["')\]]?$/.test(trimmed)) ms = 190;
   else ms = 300;
@@ -97,14 +105,15 @@ export function splitSentences(paragraph: string): string[] {
   let start = 0;
   for (let i = 0; i < paragraph.length; i++) {
     const c = paragraph[i]!;
-    if (c !== "." && c !== "!" && c !== "?") continue;
+    if (c !== "." && c !== "!" && c !== "?" && c !== "।" && c !== "॥") continue;
     let j = i;
-    while (j + 1 < paragraph.length && /[.!?]/.test(paragraph[j + 1]!)) j++;
+    while (j + 1 < paragraph.length && /[.!?।॥]/.test(paragraph[j + 1]!)) j++;
     let k = j;
     while (k + 1 < paragraph.length && /["')\]]/.test(paragraph[k + 1]!)) k++;
     const atEnd = k + 1 >= paragraph.length;
     // "3.5", "example.com": a terminator glued to the next character is not a sentence end.
-    if (!atEnd && !/\s/.test(paragraph[k + 1]!)) {
+    const danda = c === "।" || c === "॥";
+    if (!atEnd && !danda && !/\s/.test(paragraph[k + 1]!)) {
       i = k;
       continue;
     }
@@ -147,9 +156,9 @@ function mergeShort(sentences: string[], max: number): string[] {
   const out: string[] = [];
   for (const s of sentences) {
     const prev = out[out.length - 1];
-    if (prev !== undefined && prev.length < 28 && /[.!?]["')\]]?$/.test(prev) === false) {
+    if (prev !== undefined && prev.length < 28 && /[.!?।॥]["')\]]?$/.test(prev) === false) {
       out[out.length - 1] = `${prev} ${s}`;
-    } else if (prev !== undefined && prev.length + s.length < 70 && prev.length < 40 && s.length < 40 && /[.]$/.test(prev)) {
+    } else if (prev !== undefined && prev.length + s.length < 70 && prev.length < 40 && s.length < 40 && /[.।]$/.test(prev)) {
       out[out.length - 1] = `${prev} ${s}`;
     } else out.push(s);
   }

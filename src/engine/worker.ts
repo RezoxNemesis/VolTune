@@ -1,6 +1,9 @@
 /// <reference lib="webworker" />
 import { KokoroTTS, env } from "kokoro-js";
 import { AutoTokenizer, Tensor, env as hfEnv } from "@huggingface/transformers";
+import { phonemize } from "phonemizer";
+import { hindiPhonemize } from "./hindi";
+import { isHindiVoice } from "./voices";
 import type { Device, FromWorker, ToWorker } from "./protocol";
 
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
@@ -95,7 +98,15 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
           post({ type: "cancelled", id: msg.id });
           return;
         }
-        const audio = await tts.generate(job.text, { voice: job.voice as never, speed: job.speed });
+        let audio;
+        if (isHindiVoice(job.voice)) {
+          // kokoro-js only phonemizes English, so Hindi is converted here and fed in as token ids.
+          const phonemes = await hindiPhonemize(job.text, async (run) => (await phonemize(run, "en-us")).join(" "));
+          const { input_ids } = tts.tokenizer(phonemes, { truncation: true });
+          audio = await tts.generate_from_ids(input_ids, { voice: job.voice as never, speed: job.speed });
+        } else {
+          audio = await tts.generate(job.text, { voice: job.voice as never, speed: job.speed });
+        }
         const pcm = new Float32Array(audio.audio);
         post({ type: "chunk", id: msg.id, index: job.index, pcm, sampleRate: audio.sampling_rate }, [pcm.buffer]);
       }

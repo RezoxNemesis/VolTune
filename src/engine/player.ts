@@ -7,6 +7,23 @@ type State = "idle" | "playing" | "paused" | "ended";
 export type ClipLoader = (index: number) => Promise<Float32Array>;
 
 const LOOKAHEAD_S = 25;
+
+/**
+ * Clips that still need scheduling: they overlap the window [pos, horizon] and have not been
+ * handed to the audio graph in this playback run. Remembering what was scheduled is what stops a
+ * clip that has just finished from being queued again (heard as a sentence repeating).
+ */
+export function dueClips(metas: readonly ClipMeta[], scheduled: ReadonlySet<number>, pos: number, horizon: number): ClipMeta[] {
+  const out: ClipMeta[] = [];
+  for (const m of metas) {
+    if (scheduled.has(m.index)) continue;
+    const start = secs(m.startSample);
+    const end = start + secs(m.samples);
+    if (end <= pos || start > horizon) continue;
+    out.push(m);
+  }
+  return out;
+}
 const PUMP_MS = 250;
 
 /**
@@ -22,6 +39,8 @@ export class Player {
   private loader: ClipLoader = async () => new Float32Array(0);
   private sources = new Map<number, AudioBufferSourceNode>();
   private pending = new Set<number>();
+  /** Clips already queued (or played) in the current run; reset on every seek or restart. */
+  private scheduled = new Set<number>();
   private cache = new Map<number, AudioBuffer>();
   private anchorCtx = 0;
   private anchorPos = 0;
@@ -150,11 +169,8 @@ export class Player {
     if (!ctx || this._state !== "playing") return;
     const pos = this.position;
     const horizon = pos + LOOKAHEAD_S;
-    for (const m of this.metas) {
-      const start = secs(m.startSample);
-      const end = start + secs(m.samples);
-      if (end <= this.anchorPos || start > horizon) continue;
-      if (this.sources.has(m.index) || this.pending.has(m.index)) continue;
+    for (const m of dueClips(this.metas, this.scheduled, pos, horizon)) {
+      this.scheduled.add(m.index);
       void this.schedule(m);
     }
     if (!this.generating && this.metas.length > 0 && pos >= this.duration - 0.02 && this.sources.size === 0 && this.pending.size === 0) this.end();
@@ -177,6 +193,7 @@ export class Player {
       }
     } catch {
       this.pending.delete(m.index);
+      this.scheduled.delete(m.index);
       return;
     }
     this.pending.delete(m.index);
@@ -222,6 +239,7 @@ export class Player {
     }
     this.sources.clear();
     this.pending.clear();
+    this.scheduled.clear();
   }
 
   private halt() {
