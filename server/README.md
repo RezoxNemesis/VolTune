@@ -1,4 +1,6 @@
-# VolTune for Claude
+# VolTune renderer (Node)
+
+> The everyday Claude connector is the Cloudflare Worker described in the main README (open `/setup`, paste the URL). This package is for rendering audio **files** outside a browser — for animation timing and lip-sync, or a self-hosted connector that returns WAVs.
 
 The same voices, blends and acted delivery as the VolTune app, running on Node so Claude can use them:
 

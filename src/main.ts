@@ -9,7 +9,7 @@ import { DEFAULT_VOICE } from "./engine/voices";
 import { buildPlan, lookupVoiceRef, type PlanItem } from "./engine/plan";
 import { isKnownVoiceRef, type CustomVoice } from "./engine/voicebank";
 import { MemoryClipStore } from "./engine/store";
-import { fillVoiceSelect, loadCustoms, openVoiceLab, scriptTips } from "./ui/voicelab";
+import { fillVoiceSelect, loadCustoms, mergeCustoms, openVoiceLab, scriptTips } from "./ui/voicelab";
 import { hashPlan, openStore, secs, type ClipMeta, type ClipStore } from "./engine/store";
 import { rechunk, wavPieces, buildWavBlob } from "./engine/export";
 import { FileSaver } from "./native/plugins";
@@ -708,6 +708,54 @@ function showTips(on: boolean) {
   els.tipsToggle.textContent = on ? "Hide script tips" : "Script tips";
 }
 
+/* ---------- voices and scripts from Claude (VolTune site connector) ---------- */
+
+const onSite = () => location.protocol.startsWith("http") && !Capacitor.isNativePlatform();
+
+/** Pull in the voices Claude saved on this site, so they appear in every voice menu. */
+async function syncStudioVoices() {
+  if (!onSite()) return;
+  try {
+    const r = await fetch("/api/voices", { cache: "no-store" });
+    if (!r.ok) return;
+    const { voices } = (await r.json()) as { voices?: CustomVoice[] };
+    if (Array.isArray(voices) && voices.length) {
+      customs = mergeCustoms(voices);
+      refreshVoiceMenus();
+    }
+  } catch {
+    /* offline or static hosting without the connector: nothing to sync */
+  }
+}
+
+/** Open a script Claude shared (?script=<id>) with its voices, cast and settings, ready to play. */
+async function openSharedScript() {
+  const id = new URLSearchParams(location.search).get("script");
+  if (!id || !onSite() || !/^[A-Za-z0-9]{8,32}$/.test(id)) return;
+  history.replaceState(null, "", location.pathname);
+  try {
+    const r = await fetch(`/api/scripts/${id}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(String(r.status));
+    const s = (await r.json()) as { title?: string; mode?: Mode; text?: string; cast?: Record<string, string>; voice?: string; pace?: number; rhythm?: number; voices?: CustomVoice[] };
+    if (Array.isArray(s.voices) && s.voices.length) customs = mergeCustoms(s.voices);
+    const mode: Mode = s.mode === "speak" ? "speak" : "dialogue";
+    state.texts[mode] = String(s.text ?? "").slice(0, MAX_CHARS);
+    state.cast = { ...state.cast, ...(s.cast ?? {}) };
+    if (s.voice && isKnownVoiceRef(s.voice, customs)) state.voice = s.voice;
+    if (typeof s.pace === "number") state.pace = Math.min(1.3, Math.max(0.7, s.pace));
+    if (s.rhythm === 0.7 || s.rhythm === 1 || s.rhythm === 1.35) state.rhythm = s.rhythm;
+    els.pace.value = String(state.pace);
+    els.paceOut.textContent = `${state.pace.toFixed(2)}×`;
+    els.rhythm.value = String(state.rhythm);
+    voiceOptions(els.voice, state.voice);
+    applyMode(mode);
+    persist();
+    setStatus(`“${s.title ?? "Script"}” from Claude is ready. Press Speak to hear it.`);
+  } catch {
+    setStatus("That shared script couldn’t be opened. The link may be wrong or expired.", "error");
+  }
+}
+
 /* ---------- wiring ---------- */
 
 function init() {
@@ -826,3 +874,4 @@ function init() {
 }
 
 init();
+void openSharedScript().then(syncStudioVoices);
