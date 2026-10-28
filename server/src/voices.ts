@@ -86,8 +86,12 @@ export function voiceCode(ref: string): string {
   const v = findAny(ref);
   if (v) return encodeVoiceCode(v);
   if (isBaseVoice(ref)) {
-    const s = VOICES.find((x) => x.id === ref)!;
-    return encodeVoiceCode({ name: s.name, gender: s.gender as CustomVoice["gender"], accent: s.accent as CustomVoice["accent"], tone: s.tone, recipe: makeRecipe({ mix: [[ref, 1]] }) });
+    const s = VOICES.find((x) => x.id === ref);
+    // Stock voices outside the curated list still get a code, described from their id (e.g. am_onyx).
+    const name = s?.name ?? ref.slice(3).replace(/^./, (c) => c.toUpperCase());
+    const gender: CustomVoice["gender"] = s?.gender ?? (ref[1] === "m" ? "Male" : "Female");
+    const accent: CustomVoice["accent"] = s?.accent ?? (ref[0] === "b" ? "UK" : ref[0] === "h" ? "India" : "US");
+    return encodeVoiceCode({ name, gender, accent, tone: s?.tone ?? "Stock voice", recipe: makeRecipe({ mix: [[ref, 1]] }) });
   }
   throw new Error(`No voice called "${ref}".`);
 }

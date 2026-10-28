@@ -82,7 +82,8 @@ export type Direction =
   | { kind: "reset" }
   | { kind: "action"; text: string };
 
-const clean = (s: string) => s.toLowerCase().replace(/[“”"'’.!?]/g, "").replace(/\s+/g, " ").trim();
+// Drops quotes and sentence punctuation, but keeps decimal points ("pause 0.5s").
+const clean = (s: string) => s.toLowerCase().replace(/[“”"'’!?]|\.(?!\d)|(?<!\d)\./g, "").replace(/\s+/g, " ").trim();
 
 function asDelivery(spec: Spec, name: string): Delivery {
   return { ...NEUTRAL, ...spec, tags: [name] };

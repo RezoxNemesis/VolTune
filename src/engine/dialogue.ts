@@ -115,20 +115,24 @@ export function parseScript(input: string): ParsedScript {
     if (only) {
       const dirs = readDirection(only[1] ?? only[2] ?? only[3] ?? "");
       if (dirs.length && !(dirs.length === 1 && dirs[0]!.kind === "action" && /^[\p{Lu}]/u.test(only[2] ?? "") && only[2] !== undefined && looksLikeName(only[2]))) {
-        for (const d of dirs) {
-          if (d.kind === "pause") {
-            if (st.current) st.current.raw += ` [pause ${d.ms}ms]`;
-            else pendingPause += d.ms;
-          } else if (d.kind === "style") {
-            if (st.current && cueSpeaker) {
-              close();
-              pendingMood = d.delivery;
-            } else if (st.current) st.current.raw += ` (${only[1] ?? only[2] ?? only[3]})`;
-            else pendingMood = d.delivery;
-          } else if (d.kind === "sound") {
-            const who = st.current?.speaker ?? cueSpeaker?.name;
-            if (st.current) st.current.raw += ` (${only[1] ?? only[2] ?? only[3]})`;
-            else if (who) open(who, cueSpeaker?.mood ?? NEUTRAL, `(${only[1] ?? only[2] ?? only[3]})`);
+        const inner = only[1] ?? only[2] ?? only[3] ?? "";
+        const styles = dirs.flatMap((d) => (d.kind === "style" ? [d.delivery] : []));
+        const hasSound = dirs.some((d) => d.kind === "sound");
+        const pauseMs = dirs.reduce((n, d) => n + (d.kind === "pause" ? d.ms : 0), 0);
+        if (st.current && cueSpeaker && styles.length && !hasSound) {
+          // A screenplay parenthetical between speeches sets the mood of the next speech.
+          close();
+          pendingMood = combine(styles);
+          pendingPause += pauseMs;
+        } else if (st.current) {
+          // Appended once; segmentText performs each part (pause, mood, sounds) exactly once.
+          st.current.raw += ` (${inner})`;
+        } else {
+          const who = cueSpeaker?.name;
+          if (hasSound && who) open(who, cueSpeaker?.mood ?? NEUTRAL, `(${inner})`);
+          else if (!hasSound) {
+            pendingPause += pauseMs;
+            if (styles.length) pendingMood = combine(styles);
           }
         }
         continue;
@@ -224,7 +228,8 @@ export function segmentText(raw: string, base: Delivery = NEUTRAL, keepUnknown =
     const before = raw.slice(last, m.index);
     last = m.index! + m[0].length;
     if (dirs.length === 1 && dirs[0]!.kind === "action") {
-      buf += before + (keepUnknown && m[1] !== undefined ? m[0] : " ");
+      // In narration, unknown (asides) stay as written and *emphasis* / [labels] keep their words.
+      buf += before + (keepUnknown ? (m[1] !== undefined ? m[0] : ` ${inner} `) : " ");
       continue;
     }
     buf += before;

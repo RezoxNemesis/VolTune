@@ -79,12 +79,20 @@ export function lookupVoiceRef(ref: string, customs: readonly CustomVoice[]): st
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-function itemsFor(segs: readonly Segment[], ref: string, o: PlanOptions, extra: { pitch?: number; speed?: number }, meta: { speaker?: string; turn: number }): PlanItem[] {
+/** `before` is the item spoken just before this run; a pause at the very start is added to its silence. */
+function itemsFor(
+  segs: readonly Segment[],
+  ref: string,
+  o: PlanOptions,
+  extra: { pitch?: number; speed?: number },
+  meta: { speaker?: string; turn: number },
+  before?: PlanItem,
+): PlanItem[] {
   const v = resolveVoice(ref, o.customs ?? []);
   const out: PlanItem[] = [];
   for (const seg of segs) {
     if (!seg.text) {
-      const prev = out[out.length - 1];
+      const prev = out[out.length - 1] ?? before;
       if (prev && seg.pauseAfterMs) prev.pauseMs += seg.pauseAfterMs;
       continue;
     }
@@ -129,8 +137,9 @@ export function buildPlan(input: string, o: PlanOptions): { items: PlanItem[]; c
   if (o.mode === "speak") {
     const paragraphs = input.replace(/\r\n?/g, "\n").split(/\n{2,}/);
     paragraphs.forEach((para, pi) => {
-      const segs = segmentText(para, NEUTRAL, true);
-      const its = itemsFor(segs, o.voice, o, {}, { turn: 0 });
+      // Markdown links read as their label; segmentText keeps *emphasis* words in narration.
+      const segs = segmentText(para.replace(/\[([^\]\n]+)\]\((?:[^()\s]+)\)/g, "$1"), NEUTRAL, true);
+      const its = itemsFor(segs, o.voice, o, {}, { turn: 0 }, items[items.length - 1]);
       const lastItem = its[its.length - 1];
       if (lastItem && pi < paragraphs.length - 1) lastItem.pauseMs = Math.max(lastItem.pauseMs, 720);
       items.push(...its);
@@ -142,8 +151,8 @@ export function buildPlan(input: string, o: PlanOptions): { items: PlanItem[]; c
     cast = autoAssignVoices(parsed.speakers, { ...o.cast, ...fromScript });
     parsed.lines.forEach((line, turn) => {
       const directive = parsed.cast[line.speaker];
-      const its = itemsFor(line.segments, cast[line.speaker] ?? o.voice, o, { pitch: directive?.pitch, speed: directive?.speed }, { speaker: line.speaker, turn });
       if (line.pauseBeforeMs && items.length) items[items.length - 1]!.pauseMs += line.pauseBeforeMs;
+      const its = itemsFor(line.segments, cast[line.speaker] ?? o.voice, o, { pitch: directive?.pitch, speed: directive?.speed }, { speaker: line.speaker, turn }, items[items.length - 1]);
       const last = its[its.length - 1];
       // A beat of silence when the speaker changes keeps exchanges from feeling clipped.
       if (last && turn < parsed.lines.length - 1) last.pauseMs = Math.max(last.pauseMs, 520);

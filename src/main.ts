@@ -372,6 +372,8 @@ async function speak() {
     return;
   }
   resetAudio();
+  // A Voice Lab preview may still be rendering; the main render replaces it on the engine.
+  endPreview?.();
   lastActive = -1;
   const token = ++runToken;
   const built = buildPlan(value, currentPlanOptions());
@@ -644,6 +646,8 @@ function applyMode(mode: Mode, focusTab = false) {
 
 let previewCtx: AudioContext | null = null;
 let previewing = false;
+/** Settles a running preview; called when a main render takes over the engine. */
+let endPreview: (() => void) | null = null;
 
 async function previewVoice(text: string, voice: CustomVoice) {
   if (phase === "loading" || phase === "generating") {
@@ -656,11 +660,17 @@ async function previewVoice(text: string, voice: CustomVoice) {
   const { items } = buildPlan(text, { mode: "speak", speed: state.pace, pauseScale: 1, voice: voice.id, cast: {}, customs: [...customs.filter((c) => c.id !== voice.id), voice] });
   const mem = new MemoryClipStore();
   try {
-    await new Promise<void>((resolve, reject) =>
+    let superseded = false;
+    await new Promise<void>((resolve, reject) => {
+      endPreview = () => {
+        superseded = true;
+        resolve();
+      };
       void engine
         .generate(items, { store: mem, jobId: "preview" }, { onClip: () => {}, onDone: resolve, onCancel: resolve, onError: (m) => reject(new Error(m)) })
-        .catch(reject),
-    );
+        .catch(reject);
+    });
+    if (superseded) return;
     const metas = await mem.metas("preview");
     const total = metas.reduce((n, m) => Math.max(n, m.startSample + m.samples), 0);
     const pcm = new Float32Array(total);
@@ -678,6 +688,7 @@ async function previewVoice(text: string, voice: CustomVoice) {
     setStatus(e instanceof Error ? e.message : "Preview failed.", "error");
   } finally {
     previewing = false;
+    endPreview = null;
   }
 }
 

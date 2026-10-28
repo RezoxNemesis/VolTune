@@ -29,6 +29,8 @@ describe("directions", () => {
     expect(readDirection("whispering")[0]).toMatchObject({ kind: "style" });
     expect(readDirection("laughs")[0]).toMatchObject({ kind: "sound" });
     expect(readDirection("pause 2s")[0]).toEqual({ kind: "pause", ms: 2000 });
+    expect(readDirection("pause 0.5s")[0]).toEqual({ kind: "pause", ms: 500 });
+    expect(readDirection("pause 1.5s.")[0]).toEqual({ kind: "pause", ms: 1500 });
     expect(readDirection("long pause")[0]).toMatchObject({ kind: "pause" });
     expect(readDirection("looks away")[0]).toMatchObject({ kind: "action" });
   });
@@ -66,6 +68,10 @@ describe("script parsing", () => {
     expect(lines[0]!.segments[0]!.sound).toBe(true);
     expect(lines[0]!.text).toBe("Only by my backpack.");
   });
+  it("performs a standalone compound cue once", () => {
+    const { lines } = parseScript("Maya: Hello.\n(laughs, sighs)\nGoodbye.");
+    expect(lines[0]!.segments.filter((s) => s.sound).map((s) => s.text)).toEqual(["Haha!", "Hhh..."]);
+  });
   it("skips comments and adds scene-break silence", () => {
     const p = parseScript("# draft\nA: One.\n---\nB: Two.");
     expect(p.lines.map((l) => l.text)).toEqual(["One.", "Two."]);
@@ -80,6 +86,17 @@ describe("plans with voices and delivery", () => {
     expect(items[0]!.voice).toContain("af_bella");
     expect(items[0]!.pitch).toBeGreaterThan(1);
     expect(items[0]!.gain).toBeGreaterThan(1);
+  });
+  it("keeps a pause at the start of a turn", () => {
+    const plain = buildPlan("A: Hi.\nB: Bye.", base).items[0]!.pauseMs;
+    const paused = buildPlan("A: Hi.\nB: [pause 2s] Bye.", base).items[0]!.pauseMs;
+    expect(paused - plain).toBeGreaterThanOrEqual(1800);
+  });
+  it("keeps markdown emphasis and link labels in narration", () => {
+    const text = buildPlan("This is *important* information. Read [the guide](https://example.com) now.", { ...base, mode: "speak" }).items.map((i) => i.text).join(" ");
+    expect(text).toContain("important");
+    expect(text).toContain("the guide");
+    expect(text).not.toContain("example.com");
   });
   it("keeps plain plans in their original shape", () => {
     const { items } = buildPlan("Hello there.", { ...base, mode: "speak" });
