@@ -60,6 +60,7 @@ Then Claude can, from any chat:
 | `check_script` | Shows how a script will be performed: speakers, voices, per-line delivery, length, warnings. |
 | `share_script` | Saves a script and returns a link that opens it on your site, ready to play and download. |
 | `list_scripts` | Scripts shared so far. |
+| `get_scene` / `get_voices_bundle` | A script with its exact voice recipes, for rendering audio files for animation (see below). |
 
 Speech is generated in the visitor's browser, as before; the Worker only stores voices and scripts (in a Durable Object). To replace the connector URL later, open `/setup/reset?token=<current token>`.
 
@@ -67,7 +68,15 @@ Local check: `npm run worker:dev`, then open http://localhost:8787/setup.
 
 The site is static apart from `/setup`, `/mcp/*` and `/api/*`, so `dist/` can also be published on any static host (without the connector). `public/_headers` sets the Content-Security-Policy and cross-origin isolation headers; the ONNX Runtime WebAssembly is served from `/ort/`, and the only outside request is the one-time model download from `huggingface.co`.
 
-For rendering audio files outside a browser (for example for animation timing and lip-sync), see [`server/`](server/README.md): a Node CLI and self-hosted MCP server using the same engine and voice codes.
+### Voices in animations
+
+`server/` renders the website's voices to files and checks them without anyone listening:
+
+```bash
+node server/dist/cli.js scene bundle.json -o out/   # bundle from get_scene, or a plain script file
+```
+
+writes `scene.wav`, a WAV per line, `scene.json` (who speaks when, voice codes), `lipsync.json` (mouth openness and shape M/A/E/O per video frame, per character), `spectrogram.png` and `report.md`. The report measures every line — pitch, pace, loudness, brightness, breathiness, clipping — transcribes it with Whisper to catch unclear words, and checks delivery marks (a whisper must be quieter, a shout louder, "slowly" slower). `avcheck video.mp4 --scene out/` then confirms the finished video's audio is not offset or drifting and that the drawn mouths follow the speech. See [`server/README.md`](server/README.md).
 
 ## Android app
 

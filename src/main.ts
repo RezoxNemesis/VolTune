@@ -740,10 +740,12 @@ async function openSharedScript() {
     if (Array.isArray(s.voices) && s.voices.length) customs = mergeCustoms(s.voices);
     const mode: Mode = s.mode === "speak" ? "speak" : "dialogue";
     state.texts[mode] = String(s.text ?? "").slice(0, MAX_CHARS);
-    state.cast = { ...state.cast, ...(s.cast ?? {}) };
-    if (s.voice && isKnownVoiceRef(s.voice, customs)) state.voice = s.voice;
-    if (typeof s.pace === "number") state.pace = Math.min(1.3, Math.max(0.7, s.pace));
-    if (s.rhythm === 0.7 || s.rhythm === 1 || s.rhythm === 1.35) state.rhythm = s.rhythm;
+    // Start from the shared settings and the connector's defaults, not this browser's earlier choices,
+    // so the script plays exactly as check_script / share_script reported.
+    state.cast = { ...(s.cast ?? {}) };
+    state.voice = s.voice && isKnownVoiceRef(s.voice, customs) ? s.voice : DEFAULT_VOICE;
+    state.pace = typeof s.pace === "number" ? Math.min(1.3, Math.max(0.7, s.pace)) : 1;
+    state.rhythm = s.rhythm === 0.7 || s.rhythm === 1.35 ? s.rhythm : 1;
     els.pace.value = String(state.pace);
     els.paceOut.textContent = `${state.pace.toFixed(2)}×`;
     els.rhythm.value = String(state.rhythm);
@@ -874,4 +876,5 @@ function init() {
 }
 
 init();
-void openSharedScript().then(syncStudioVoices);
+// Studio voices first, so a shared script's own voice snapshot is applied last and wins.
+void syncStudioVoices().then(openSharedScript);

@@ -73,11 +73,18 @@ export class Studio extends DurableObject {
   async voices(): Promise<CustomVoice[]> {
     return (await this.ctx.storage.get<CustomVoice[]>("voices")) ?? [];
   }
-  async saveVoice(v: CustomVoice): Promise<CustomVoice[]> {
-    const list = (await this.voices()).filter((x) => x.id !== v.id && x.name.toLowerCase() !== v.name.toLowerCase());
-    list.push(v);
-    await this.ctx.storage.put("voices", list);
-    return list;
+  /**
+   * Save by name: the same name replaces that voice and keeps its id (so casts that point at it still
+   * work); a new name gets an id no other voice uses, even when names share a slug.
+   */
+  async saveVoice(v: Omit<CustomVoice, "id">): Promise<CustomVoice> {
+    const list = await this.voices();
+    const same = list.find((x) => x.name.toLowerCase() === v.name.toLowerCase());
+    let id = same?.id ?? `st_${slug(v.name)}`;
+    while (!same && list.some((x) => x.id === id)) id = `st_${slug(v.name)}_${randomId(3, "b62").toLowerCase()}`;
+    const saved: CustomVoice = { ...v, id };
+    await this.ctx.storage.put("voices", [...list.filter((x) => x.id !== id), saved]);
+    return saved;
   }
   async deleteVoice(ref: string): Promise<boolean> {
     const list = await this.voices();
@@ -202,7 +209,7 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
       instructions:
         "VolTune turns scripts into acted, multi-voice speech. Call script_help first for the script syntax (speakers, moods like (whispering), sounds like (laughs), [pause 2s], @Name = voice). " +
         "Design character voices with create_voice; they are saved to the person's VolTune website. Use check_script to see how a script will be performed, then share_script to get a link where the person hears it and downloads the WAV. " +
-        "Every voice has a VT1 code; in an environment with the VolTune repo, `node server/dist/cli.js voice-import <code>` and `render` produce the identical audio file locally (for animation timing and lip-sync).",
+        "For animation: get_scene returns a script with its exact voice recipes; in an environment with the VolTune repo run `node server/dist/cli.js scene <bundle.json> -o out/` to get scene.wav, per-line WAVs, a timeline, lip-sync mouth tracks and an audio-quality report (pitch, pace, loudness, transcript check), then `avcheck` on the finished video.",
     },
   );
 
@@ -246,8 +253,7 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
         return fail(e instanceof Error ? e.message : String(e));
       }
       const meta = stockMeta(mix[0]![0]);
-      const v: CustomVoice = {
-        id: `st_${slug(a.name)}`,
+      const v: Omit<CustomVoice, "id"> = {
         name: a.name.trim(),
         gender: a.gender ?? meta.gender,
         accent: a.accent ?? meta.accent,
@@ -264,9 +270,8 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
     { description: "Save a voice from a VT1 code (copied from the VolTune app's Voice Lab).", inputSchema: { code: z.string().startsWith("VT1.") } },
     async ({ code }) => {
       try {
-        const v = decodeVoiceCode(code);
-        const saved = { ...v, id: `st_${slug(v.name)}` };
-        await stub.saveVoice(saved);
+        const { id: _ignored, ...v } = decodeVoiceCode(code);
+        const saved = (await stub.saveVoice(v)) as unknown as CustomVoice;
         return text({ saved: saved.name, recipe: describeRecipe(saved.recipe) });
       } catch (e) {
         return fail(e instanceof Error ? e.message : String(e));
@@ -292,7 +297,8 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
     cast: z.record(z.string(), z.string()).optional().describe('Voices per speaker, e.g. {"Maya":"Teen girl"}; @Name lines in the script win'),
     voice: z.string().optional().describe("Voice for speak mode"),
     pace: z.number().min(0.7).max(1.3).optional(),
-    rhythm: z.number().min(0.7).max(1.35).optional().describe("Pause length: 0.7 brisk, 1 natural, 1.35 relaxed"),
+    // The website offers exactly these three rhythms, so shared scripts play as reported.
+    rhythm: z.union([z.literal(0.7), z.literal(1), z.literal(1.35)]).optional().describe("Pause length: 0.7 brisk, 1 natural, 1.35 relaxed"),
   };
 
   server.registerTool(
@@ -318,6 +324,27 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
       await stub.saveScript(s);
       return text({ link: `${origin}/?script=${s.id}`, ...report });
     },
+  );
+
+  server.registerTool(
+    "get_scene",
+    {
+      description:
+        "Everything needed to render a shared script as audio files outside the browser: script text, cast, settings and the full voice recipes. Save the JSON to a file and run `node server/dist/cli.js scene <file> -o <folder>` in the VolTune repo to get scene.wav, per-line WAVs, a timeline, lip-sync tracks and an audio check, with the same voices the website plays. Without an id, returns the newest script.",
+      inputSchema: { id: z.string().optional().describe("Script id or share link; default the newest") },
+    },
+    async ({ id }) => {
+      const want = id?.replace(/^.*[?&]script=/, "").trim() || (await stub.listScripts())[0]?.id;
+      const s = want ? ((await stub.getScript(want)) as unknown as SavedScript | null) : null;
+      if (!s) return fail("No such script. Use share_script first, or list_scripts to see ids.");
+      return text({ ...s, link: `${origin}/?script=${s.id}` });
+    },
+  );
+
+  server.registerTool(
+    "get_voices_bundle",
+    { description: "All saved voices as a bundle (JSON) for local rendering with `voltune scene` or `voltune voice-import`, so animation audio uses the website's exact voices.", inputSchema: {} },
+    async () => text({ voices: await voicesOf(stub) }),
   );
 
   server.registerTool("list_scripts", { description: "Scripts shared on this VolTune site, newest first, with their links.", inputSchema: {} }, async () =>
