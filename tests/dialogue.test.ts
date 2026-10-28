@@ -6,7 +6,7 @@ describe("parseScript", () => {
   it("parses Name: line and [Name] line formats", () => {
     const { lines, speakers } = parseScript("Maya: Hello there.\n[Jon] Hi, Maya.\nMaya: How are you?");
     expect(speakers).toEqual(["Maya", "Jon"]);
-    expect(lines).toEqual([
+    expect(lines.map(({ speaker, text }) => ({ speaker, text }))).toEqual([
       { speaker: "Maya", text: "Hello there." },
       { speaker: "Jon", text: "Hi, Maya." },
       { speaker: "Maya", text: "How are you?" },
@@ -14,7 +14,7 @@ describe("parseScript", () => {
   });
   it("continues a speaker across unlabelled lines", () => {
     const { lines } = parseScript("Maya: First thought.\nand a second line.");
-    expect(lines).toEqual([{ speaker: "Maya", text: "First thought. and a second line." }]);
+    expect(lines.map(({ speaker, text }) => ({ speaker, text }))).toEqual([{ speaker: "Maya", text: "First thought. and a second line." }]);
   });
   it("treats unlabelled text as Narrator", () => {
     const { lines, speakers } = parseScript("It was late.");
@@ -26,7 +26,7 @@ describe("parseScript", () => {
   });
   it("removes stage directions and drops empty lines", () => {
     const { lines } = parseScript("Jon: (sighs) Fine. *shrugs*\nMaya: (silence)");
-    expect(lines).toEqual([{ speaker: "Jon", text: "Fine." }]);
+    expect(lines.map(({ speaker, text }) => ({ speaker, text }))).toEqual([{ speaker: "Jon", text: "Fine." }]);
   });
   it("does not mistake URLs for speakers", () => {
     expect(parseScript("Visit https://example.com now.").speakers).toEqual(["Narrator"]);

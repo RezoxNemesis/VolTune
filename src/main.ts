@@ -5,8 +5,11 @@ import { Player } from "./engine/player";
 import { toFloat32 } from "./engine/audio";
 import { MAX_CHARS, estimateSeconds } from "./engine/text";
 import { autoAssignVoices, parseScript } from "./engine/dialogue";
-import { DEFAULT_VOICE, VOICES, isVoiceId } from "./engine/voices";
-import { buildPlan, type PlanItem } from "./engine/plan";
+import { DEFAULT_VOICE } from "./engine/voices";
+import { buildPlan, lookupVoiceRef, type PlanItem } from "./engine/plan";
+import { isKnownVoiceRef, type CustomVoice } from "./engine/voicebank";
+import { MemoryClipStore } from "./engine/store";
+import { fillVoiceSelect, loadCustoms, openVoiceLab, scriptTips } from "./ui/voicelab";
 import { hashPlan, openStore, secs, type ClipMeta, type ClipStore } from "./engine/store";
 import { rechunk, wavPieces, buildWavBlob } from "./engine/export";
 import { FileSaver } from "./native/plugins";
@@ -25,7 +28,7 @@ interface Saved {
 
 const STORE = "voltune.v1";
 const WARM = "voltune.warm";
-const SAMPLE_DIALOGUE = "Maya: Did you hear that?\nJon: Hear what? I was reading.\nMaya: Listen. It stopped, just now.\nJon: Maya, it's an old house. It's allowed to make noise.";
+const SAMPLE_DIALOGUE = "@Maya = Teen girl\n@Jon = Teen boy\n\nMaya (whispering): Did you hear that?\nJon: Hear what? I was reading.\nMaya: Listen. (pause) It stopped, just now.\nJon (laughs): Maya, it's an old house. It's allowed to make noise.";
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -51,10 +54,15 @@ const els = {
   play: $<HTMLButtonElement>("play"),
   save: $<HTMLButtonElement>("save"),
   edit: $<HTMLButtonElement>("edit"),
+  labOpen: $<HTMLButtonElement>("lab-open"),
+  tipsToggle: $<HTMLButtonElement>("tips-toggle"),
+  tips: $("tips"),
   panel: $("panel"),
 };
 
 /* ---------- persisted settings ---------- */
+
+let customs: CustomVoice[] = loadCustoms();
 
 function loadSaved(): Saved {
   const base: Saved = { mode: "speak", texts: { speak: "", dialogue: "" }, voice: DEFAULT_VOICE, pace: 1, rhythm: 1, cast: {} };
@@ -65,10 +73,10 @@ function loadSaved(): Saved {
     return {
       mode: s.mode === "dialogue" ? "dialogue" : "speak",
       texts: { speak: String(s.texts?.speak ?? "").slice(0, MAX_CHARS), dialogue: String(s.texts?.dialogue ?? "").slice(0, MAX_CHARS) },
-      voice: typeof s.voice === "string" && isVoiceId(s.voice) ? s.voice : DEFAULT_VOICE,
+      voice: typeof s.voice === "string" && isKnownVoiceRef(s.voice, customs) ? s.voice : DEFAULT_VOICE,
       pace: typeof s.pace === "number" && s.pace >= 0.7 && s.pace <= 1.3 ? s.pace : 1,
       rhythm: s.rhythm === 0.7 || s.rhythm === 1.35 ? s.rhythm : 1,
-      cast: Object.fromEntries(Object.entries(s.cast ?? {}).filter(([, v]) => typeof v === "string" && isVoiceId(v))),
+      cast: Object.fromEntries(Object.entries(s.cast ?? {}).filter(([, v]) => typeof v === "string" && isKnownVoiceRef(v, customs))),
     };
   } catch {
     return base;
@@ -143,27 +151,12 @@ function updateCount() {
 /* ---------- voices ---------- */
 
 function voiceOptions(select: HTMLSelectElement, selected: string) {
-  select.replaceChildren();
-  for (const lang of ["en", "hi"] as const) {
-    for (const gender of ["Female", "Male"] as const) {
-      const list = VOICES.filter((x) => x.lang === lang && x.gender === gender);
-      if (list.length === 0) continue;
-      const group = document.createElement("optgroup");
-      group.label = `${lang === "hi" ? "Hindi · हिन्दी" : "English"} · ${gender}`;
-      for (const v of list) {
-        const o = document.createElement("option");
-        o.value = v.id;
-        o.textContent = `${v.name} · ${v.accent} · ${v.tone}`;
-        group.append(o);
-      }
-      select.append(group);
-    }
-  }
-  select.value = selected;
+  fillVoiceSelect(select, selected, customs);
 }
 
 function renderCast() {
-  const { speakers } = parseScript(els.text.value);
+  const parsed = parseScript(els.text.value);
+  const { speakers } = parsed;
   state.cast = autoAssignVoices(speakers, state.cast);
   els.cast.replaceChildren();
   for (const name of speakers) {
@@ -175,7 +168,13 @@ function renderCast() {
     wrap.className = "select";
     const sel = document.createElement("select");
     sel.setAttribute("aria-label", `Voice for ${name}`);
-    voiceOptions(sel, state.cast[name] ?? DEFAULT_VOICE);
+    const fixed = parsed.cast[name];
+    voiceOptions(sel, fixed ? lookupVoiceRef(fixed.voice, customs) : state.cast[name] ?? DEFAULT_VOICE);
+    if (fixed) {
+      // The script chose this voice with "@Name = …"; the script wins, so show it but don't offer a choice.
+      sel.disabled = true;
+      sel.title = "Set in the script with @" + name + " = …";
+    }
     sel.addEventListener("change", () => {
       state.cast[name] = sel.value;
       persist();
@@ -349,7 +348,7 @@ function etaText(seconds: number): string {
 }
 
 function currentPlanOptions() {
-  return { mode: state.mode, speed: state.pace, pauseScale: state.rhythm, voice: state.voice, cast: state.cast };
+  return { mode: state.mode, speed: state.pace, pauseScale: state.rhythm, voice: state.voice, cast: state.cast, customs };
 }
 
 async function speak() {
@@ -373,6 +372,8 @@ async function speak() {
     return;
   }
   resetAudio();
+  // A Voice Lab preview may still be rendering; the main render replaces it on the engine.
+  endPreview?.();
   lastActive = -1;
   const token = ++runToken;
   const built = buildPlan(value, currentPlanOptions());
@@ -629,6 +630,8 @@ function applyMode(mode: Mode, focusTab = false) {
     els.text.value = state.texts[mode] ?? "";
     els.text.placeholder = mode === "dialogue" ? SAMPLE_DIALOGUE : "Type or paste what you want to hear.";
     els.voiceField.hidden = mode === "dialogue";
+    els.tipsToggle.hidden = mode !== "dialogue";
+    if (mode !== "dialogue") showTips(false);
     renderCast();
     autosize();
     updateCount();
@@ -637,6 +640,72 @@ function applyMode(mode: Mode, focusTab = false) {
   if (changed) transition(run);
   else run();
   persist();
+}
+
+/* ---------- Voice Lab ---------- */
+
+let previewCtx: AudioContext | null = null;
+let previewing = false;
+/** Settles a running preview; called when a main render takes over the engine. */
+let endPreview: (() => void) | null = null;
+
+async function previewVoice(text: string, voice: CustomVoice) {
+  if (phase === "loading" || phase === "generating") {
+    setStatus("Stop the current speech before previewing a voice.", "error");
+    return;
+  }
+  if (previewing) return;
+  previewing = true;
+  setStatus(`Preparing “${voice.name}”…`);
+  const { items } = buildPlan(text, { mode: "speak", speed: state.pace, pauseScale: 1, voice: voice.id, cast: {}, customs: [...customs.filter((c) => c.id !== voice.id), voice] });
+  const mem = new MemoryClipStore();
+  try {
+    let superseded = false;
+    await new Promise<void>((resolve, reject) => {
+      endPreview = () => {
+        superseded = true;
+        resolve();
+      };
+      void engine
+        .generate(items, { store: mem, jobId: "preview" }, { onClip: () => {}, onDone: resolve, onCancel: resolve, onError: (m) => reject(new Error(m)) })
+        .catch(reject);
+    });
+    if (superseded) return;
+    const metas = await mem.metas("preview");
+    const total = metas.reduce((n, m) => Math.max(n, m.startSample + m.samples), 0);
+    const pcm = new Float32Array(total);
+    for (const m of metas) pcm.set(toFloat32(await mem.get("preview", m.index)), m.startSample);
+    previewCtx ??= new AudioContext({ sampleRate: 24_000 });
+    await previewCtx.resume();
+    const buf = previewCtx.createBuffer(1, pcm.length, 24_000);
+    buf.copyToChannel(pcm, 0);
+    const src = previewCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(previewCtx.destination);
+    src.start();
+    setStatus(`Previewing “${voice.name}”.`);
+  } catch (e) {
+    setStatus(e instanceof Error ? e.message : "Preview failed.", "error");
+  } finally {
+    previewing = false;
+    endPreview = null;
+  }
+}
+
+function refreshVoiceMenus() {
+  voiceOptions(els.voice, state.voice);
+  renderCast();
+}
+
+let tipsBuilt = false;
+function showTips(on: boolean) {
+  if (on && !tipsBuilt) {
+    els.tips.append(scriptTips());
+    tipsBuilt = true;
+  }
+  els.tips.hidden = !on;
+  els.tipsToggle.setAttribute("aria-expanded", String(on));
+  els.tipsToggle.textContent = on ? "Hide script tips" : "Script tips";
 }
 
 /* ---------- wiring ---------- */
@@ -683,6 +752,17 @@ function init() {
   });
   els.speak.addEventListener("click", () => void speak());
   els.edit.addEventListener("click", editText);
+  els.labOpen.addEventListener("click", () =>
+    openVoiceLab({
+      preview: previewVoice,
+      onChange: (list) => {
+        customs = list;
+        refreshVoiceMenus();
+      },
+      toast: setStatus,
+    }),
+  );
+  els.tipsToggle.addEventListener("click", () => showTips(els.tips.hidden));
   els.save.addEventListener("click", () => void save());
   els.play.addEventListener("click", () => player.toggle());
 

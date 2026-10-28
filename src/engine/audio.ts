@@ -121,3 +121,142 @@ export function toFloat32(pcm: Int16Array): Float32Array {
   for (let i = 0; i < pcm.length; i++) out[i] = pcm[i]! / (pcm[i]! < 0 ? 0x8000 : 0x7fff);
   return out;
 }
+
+/* ---------- voice shaping: pitch, delivery colour, lip-sync envelope ---------- */
+
+/**
+ * Time-stretch without changing pitch (WSOLA: overlap-add of windowed frames, each aligned to the
+ * waveform by cross-correlation so voiced sounds stay continuous). `factor` > 1 makes it longer.
+ */
+export function timeStretch(pcm: Float32Array, factor: number, sampleRate = SAMPLE_RATE): Float32Array {
+  if (Math.abs(factor - 1) < 1e-3 || pcm.length < 64) return pcm.slice();
+  const win = Math.round(sampleRate * 0.04) & ~1;
+  const hs = win >> 1;
+  const ha = hs / factor;
+  const tol = Math.round(sampleRate * 0.01);
+  const outLen = Math.round(pcm.length * factor);
+  const out = new Float32Array(outLen + win);
+  const norm = new Float32Array(outLen + win);
+  const w = new Float32Array(win);
+  for (let i = 0; i < win; i++) w[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / win);
+  let prevPos = 0;
+  for (let k = 0, outPos = 0; outPos < outLen; k++, outPos += hs) {
+    const target = Math.round(k * ha);
+    let best = target;
+    if (k > 0) {
+      // Find the frame start near `target` that best continues the previous frame.
+      const natural = prevPos + hs;
+      let bestScore = -Infinity;
+      const lo = Math.max(0, target - tol);
+      const hi = Math.min(pcm.length - win, target + tol);
+      for (let c = lo; c <= hi; c += 2) {
+        let s = 0;
+        for (let i = 0; i < hs; i += 4) s += (pcm[c + i] ?? 0) * (pcm[natural + i] ?? 0);
+        if (s > bestScore) {
+          bestScore = s;
+          best = c;
+        }
+      }
+    }
+    best = Math.max(0, Math.min(best, Math.max(0, pcm.length - win)));
+    for (let i = 0; i < win; i++) {
+      out[outPos + i]! += (pcm[best + i] ?? 0) * w[i]!;
+      norm[outPos + i]! += w[i]!;
+    }
+    prevPos = best;
+  }
+  const res = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) res[i] = norm[i]! > 1e-3 ? out[i]! / norm[i]! : out[i]!;
+  return res;
+}
+
+/** Resample by linear interpolation to `length` samples. */
+export function resampleTo(pcm: Float32Array, length: number): Float32Array {
+  const out = new Float32Array(Math.max(0, length));
+  if (pcm.length === 0 || length <= 0) return out;
+  const step = (pcm.length - 1) / Math.max(1, length - 1);
+  for (let i = 0; i < length; i++) {
+    const x = i * step;
+    const j = Math.floor(x);
+    const f = x - j;
+    out[i] = (pcm[j] ?? 0) * (1 - f) + (pcm[j + 1] ?? pcm[j] ?? 0) * f;
+  }
+  return out;
+}
+
+/** Shift pitch by `semitones` while keeping the duration (stretch, then resample). */
+export function pitchShift(pcm: Float32Array, semitones: number, sampleRate = SAMPLE_RATE): Float32Array {
+  if (Math.abs(semitones) < 0.05) return pcm;
+  const r = Math.pow(2, semitones / 12);
+  return resampleTo(timeStretch(pcm, r, sampleRate), pcm.length);
+}
+
+/** One-pole low-pass, in place. */
+function lowpass(pcm: Float32Array, cutoff: number, sampleRate: number) {
+  const a = Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+  let y = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    y = (1 - a) * pcm[i]! + a * y;
+    pcm[i] = y;
+  }
+}
+
+export interface Colour {
+  /** Linear gain applied after loudness matching (whispers < 1 < shouts). */
+  gain: number;
+  /** 0 … 1: darker, breathier, quieter delivery (whisper, murmur). */
+  soft: number;
+  /** 0 … 1: pushed, slightly saturated delivery (shout, anger). */
+  edge: number;
+}
+
+/** Give a polished clip the colour of its delivery. Returns a new array. */
+export function colour(pcm: Float32Array, c: Partial<Colour>, sampleRate = SAMPLE_RATE): Float32Array {
+  const gain = c.gain ?? 1;
+  const soft = Math.min(1, Math.max(0, c.soft ?? 0));
+  const edge = Math.min(1, Math.max(0, c.edge ?? 0));
+  if (gain === 1 && soft === 0 && edge === 0) return pcm;
+  const out = pcm.slice();
+  if (soft > 0) {
+    const dark = out.slice();
+    lowpass(dark, 2600 - 1400 * soft, sampleRate);
+    // A little shaped noise riding on the voice's own envelope reads as breath.
+    let env = 0;
+    let seed = 1234567;
+    for (let i = 0; i < out.length; i++) {
+      env = Math.max(Math.abs(out[i]!), env * 0.9992);
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const n = (seed / 0x7fffffff - 0.5) * env * 0.35 * soft;
+      out[i] = out[i]! * (1 - soft) + dark[i]! * soft + n;
+    }
+  }
+  if (edge > 0) {
+    const drive = 1 + 2.5 * edge;
+    const k = Math.tanh(drive);
+    for (let i = 0; i < out.length; i++) out[i] = Math.tanh(out[i]! * drive) / k;
+  }
+  let p = 0;
+  for (let i = 0; i < out.length; i++) p = Math.max(p, Math.abs(out[i]! * gain));
+  const g = p > 0.97 ? (gain * 0.97) / p : gain;
+  for (let i = 0; i < out.length; i++) out[i] = out[i]! * g;
+  return out;
+}
+
+/** Mouth-openness per animation frame (0 … 1), for lip-syncing characters to the audio. */
+export function mouthEnvelope(pcm: Float32Array, fps = 30, sampleRate = SAMPLE_RATE): number[] {
+  const per = sampleRate / fps;
+  const n = Math.ceil(pcm.length / per);
+  const raw: number[] = [];
+  for (let f = 0; f < n; f++) {
+    let s = 0;
+    const a = Math.floor(f * per);
+    const b = Math.min(pcm.length, Math.floor((f + 1) * per));
+    for (let i = a; i < b; i++) s += pcm[i]! * pcm[i]!;
+    raw.push(Math.sqrt(s / Math.max(1, b - a)));
+  }
+  const ref = [...raw].sort((x, y) => x - y)[Math.floor(raw.length * 0.95)] || 1;
+  return raw.map((v) => {
+    const x = Math.min(1, v / (ref || 1));
+    return Math.round((x < 0.08 ? 0 : Math.pow(x, 0.7)) * 100) / 100;
+  });
+}

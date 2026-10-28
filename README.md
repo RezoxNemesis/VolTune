@@ -7,7 +7,14 @@ VolTune uses the open [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) vo
 ## What it does
 
 - **Speak**: paste text, pick a voice, set the pace, listen. Playback starts as soon as the first sentence is ready.
-- **Dialogue**: write a script as `Name: line` or `[Name] line`. Each speaker gets their own voice, with a beat of silence when the speaker changes. Stage directions like `(sighs)` or `*laughs*` are not spoken.
+- **Dialogue**: write a script as `Name: line`, `[Name] line` or screenplay style. Each speaker gets their own voice, and the script can act:
+  - moods on a label or inline — `Maya (whispering): Come here.`, `[Jon, angry] Stop!`, `(very excited)` — change pace, pitch, loudness and breathiness;
+  - sounds such as `(laughs)`, `(sighs)`, `(gasps)` are performed in the character's voice;
+  - `[pause 2s]`, `(beat)` and `---` scene breaks control timing; `#` lines are comments;
+  - `@Maya = Teen girl` or `@Ghost = af_sky*0.6+am_onyx*0.4, pitch -2` picks voices inside the script.
+  The **Script tips** link in the Dialogue tab lists everything.
+- **Voice Lab** (**Voices** button): blend two voices, shift pitch and pace, preview, save. Ten character presets (Teen boy, Teen girl, Child, Hero, Villain, Elder, Grandma, narrators…) are built in. Every voice can be copied as a `VT1.…` code and imported elsewhere.
+- **Claude connector**: [`server/`](server/README.md) runs the same engine on Node as an MCP connector and CLI, so Claude can design voices and render acted scenes (with timings and lip-sync for animation). Voices move between Claude and the app via their codes.
 - **Read-along**: the sentence being spoken is lit; click any sentence to jump to it.
 - **Save audio**: export the whole piece as a 24 kHz mono WAV.
 
@@ -31,7 +38,7 @@ npm run dev        # http://localhost:5173
 | --- | --- |
 | `npm run dev` | Development server with hot reload |
 | `npm run typecheck` | TypeScript strict check |
-| `npm test` | Unit tests (text, dialogue, audio) |
+| `npm test` | Unit tests (text, dialogue, delivery, voices, audio) |
 | `npm run build` | Typecheck, then production build to `dist/` |
 | `npm run preview` | Serve the production build locally |
 
