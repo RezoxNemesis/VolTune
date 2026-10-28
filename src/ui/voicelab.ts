@@ -26,6 +26,16 @@ export function loadCustoms(): CustomVoice[] {
   }
 }
 
+/** Merge voices from elsewhere (Claude's studio, a shared script) into the saved list; same id or name is replaced. */
+export function mergeCustoms(incoming: readonly CustomVoice[]): CustomVoice[] {
+  const clean = incoming.filter((v) => v && typeof v.id === "string" && typeof v.name === "string" && Array.isArray(v.recipe?.mix));
+  const names = new Set(clean.map((v) => v.name.toLowerCase()));
+  const ids = new Set(clean.map((v) => v.id));
+  const list = [...loadCustoms().filter((v) => !ids.has(v.id) && !names.has(v.name.toLowerCase())), ...clean];
+  saveCustoms(list);
+  return list;
+}
+
 function saveCustoms(list: CustomVoice[]) {
   try {
     localStorage.setItem(KEY, JSON.stringify(list));

@@ -18,6 +18,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      # Bundle the Cloudflare Worker exactly as a deploy would, without deploying.
+      - run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/worker"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
@@ -41,22 +43,32 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
-      # End to end: download the int8 model, perform a two-voice script, check the WAV.
-      - name: Render a scene
+      # End to end: download the int8 model, render a two-voice scene for animation, and check it by ear-less analysis.
+      - name: Render and check a scene
         env:
           VOLTUNE_PRECISION: int8
           VOLTUNE_DATA: ${{ runner.temp }}/voltune
         run: |
-          printf '@Kabir = Teen boy\n@Tara = Teen girl\nKABIR\n(nervous)\nIs this seat taken?\n\nTara (laughs): Only by my backpack.\n' > scene.txt
-          node dist/cli.js render scene.txt -o scene.wav --json scene.json
-          test "$(stat -c %s scene.wav)" -gt 50000
-          node -e 'const j=require("./scene.json"); if (j.timeline.length < 3 || j.cast.Kabir !== "pre_teen_boy") process.exit(1)'
+          printf '@Kabir = Teen boy\n@Tara = Teen girl\nKABIR\n(nervous)\nIs this seat taken?\n\nTara (laughs): Only by my backpack. Sit down.\nTara (whispering): The driver has not blinked once.\n' > scene.txt
+          node dist/cli.js scene scene.txt -o scene
+          test "$(stat -c %s scene/scene.wav)" -gt 50000
+          node -e '
+            const r = require("./scene/report.json"), s = require("./scene/scene.json"), l = require("./scene/lipsync.json");
+            const fail = (m) => { console.error(m); process.exit(1); };
+            if (s.cast.Kabir !== "pre_teen_boy") fail("cast");
+            if (!r.transcripts) fail("transcripts did not run");
+            if (r.score < 60) fail("score " + r.score);
+            const clear = r.lines.find((x) => /backpack/.test(x.text));
+            if (!clear || clear.wordErrorRate > 0.5) fail("unclear speech: " + JSON.stringify(clear));
+            const w = r.lines.find((x) => x.tags.includes("whisper")), n = r.lines.find((x) => /backpack/.test(x.text));
+            if (!(w.loudnessDb < n.loudnessDb - 2)) fail("whisper not quieter");
+            if (!l.tracks.Tara || !/[AEO]/.test(l.tracks.Tara.shapes)) fail("lip-sync");
+            console.log("score", r.score);'
+          node dist/cli.js analyze scene/scene.wav --timeline scene/scene.json --no-asr > /dev/null
       - uses: actions/upload-artifact@v4
         with:
           name: server-sample
-          path: |
-            server/scene.wav
-            server/scene.json
+          path: server/scene
           retention-days: 7
 
   server-image:

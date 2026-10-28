@@ -14,7 +14,7 @@ VolTune uses the open [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) vo
   - `@Maya = Teen girl` or `@Ghost = af_sky*0.6+am_onyx*0.4, pitch -2` picks voices inside the script.
   The **Script tips** link in the Dialogue tab lists everything.
 - **Voice Lab** (**Voices** button): blend two voices, shift pitch and pace, preview, save. Ten character presets (Teen boy, Teen girl, Child, Hero, Villain, Elder, Grandma, narrators…) are built in. Every voice can be copied as a `VT1.…` code and imported elsewhere.
-- **Claude connector**: [`server/`](server/README.md) runs the same engine on Node as an MCP connector and CLI, so Claude can design voices and render acted scenes (with timings and lip-sync for animation). Voices move between Claude and the app via their codes.
+- **Claude connector**: the Cloudflare Worker gives Claude a private connector to design voices and share scripts that open ready to play on your site (see below). [`server/`](server/README.md) renders the same voices to WAV files on Node.
 - **Read-along**: the sentence being spoken is lit; click any sentence to jump to it.
 - **Save audio**: export the whole piece as a 24 kHz mono WAV.
 
@@ -42,17 +42,41 @@ npm run dev        # http://localhost:5173
 | `npm run build` | Typecheck, then production build to `dist/` |
 | `npm run preview` | Serve the production build locally |
 
-## Deploying
+## Website and Claude connector (Cloudflare)
 
-VolTune is a static site. Deploy `dist/` to any static host.
+One Cloudflare Worker serves the VolTune website and a private connector for Claude, set up like Reuz: no secrets to copy by hand.
+
+1. In Cloudflare: **Workers & Pages → Create → Import a repository → `RezoxNemesis/VolTune`**. Keep the defaults (deploy command `npx wrangler deploy`). Cloudflare builds the site and deploys it on every push to `main`. Your site is `https://voltune.<your-subdomain>.workers.dev`.
+2. Open **`https://voltune.<your-subdomain>.workers.dev/setup`** once. It shows your private connector URL, only on that first visit, so copy it.
+3. In Claude: **Settings → Connectors → Add custom connector**, name it VolTune and paste the URL.
+
+Then Claude can, from any chat:
+
+| Tool | What it does |
+| --- | --- |
+| `script_help` | The script syntax. |
+| `list_voices` | Stock voices, character presets and the voices saved on your site. |
+| `create_voice` / `import_voice` / `delete_voice` / `get_voice_code` | Design and manage voices. Voices Claude creates appear in the website's voice menus automatically. |
+| `check_script` | Shows how a script will be performed: speakers, voices, per-line delivery, length, warnings. |
+| `share_script` | Saves a script and returns a link that opens it on your site, ready to play and download. |
+| `list_scripts` | Scripts shared so far. |
+| `get_scene` / `get_voices_bundle` | A script with its exact voice recipes, for rendering audio files for animation (see below). |
+
+Speech is generated in the visitor's browser, as before; the Worker only stores voices and scripts (in a Durable Object). To replace the connector URL later, open `/setup/reset?token=<current token>`.
+
+Local check: `npm run worker:dev`, then open http://localhost:8787/setup.
+
+The site is static apart from `/setup`, `/mcp/*` and `/api/*`, so `dist/` can also be published on any static host (without the connector). `public/_headers` sets the Content-Security-Policy and cross-origin isolation headers; the ONNX Runtime WebAssembly is served from `/ort/`, and the only outside request is the one-time model download from `huggingface.co`.
+
+### Voices in animations
+
+`server/` renders the website's voices to files and checks them without anyone listening:
 
 ```bash
-npm run build
+node server/dist/cli.js scene bundle.json -o out/   # bundle from get_scene, or a plain script file
 ```
 
-- **Cloudflare Pages / Netlify**: publish `dist`. The included `public/_headers` file is copied into the build and sets a strict Content-Security-Policy, security headers and cache rules. On other hosts, apply the same headers.
-- The ONNX Runtime WebAssembly files are served from your own origin under `/ort/`, so the page loads no third-party scripts. The largest file is about 21 MB, under Cloudflare Pages' 25 MB per-file limit.
-- The only external request at runtime is the one-time model download from `huggingface.co`, which the browser then caches. To avoid that dependency, host the model files yourself and change `MODEL_ID` handling in `src/engine/worker.ts`.
+writes `scene.wav`, a WAV per line, `scene.json` (who speaks when, voice codes), `lipsync.json` (mouth openness and shape M/A/E/O per video frame, per character), `spectrogram.png` and `report.md`. The report measures every line — pitch, pace, loudness, brightness, breathiness, clipping — transcribes it with Whisper to catch unclear words, and checks delivery marks (a whisper must be quieter, a shout louder, "slowly" slower). `avcheck video.mp4 --scene out/` then confirms the finished video's audio is not offset or drifting and that the drawn mouths follow the speech. See [`server/README.md`](server/README.md).
 
 ## Android app
 

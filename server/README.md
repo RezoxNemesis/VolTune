@@ -1,4 +1,6 @@
-# VolTune for Claude
+# VolTune renderer (Node)
+
+> The everyday Claude connector is the Cloudflare Worker described in the main README (open `/setup`, paste the URL). This package is for rendering audio **files** outside a browser — for animation timing and lip-sync, or a self-hosted connector that returns WAVs.
 
 The same voices, blends and acted delivery as the VolTune app, running on Node so Claude can use them:
 
@@ -54,6 +56,27 @@ Settings → Connectors → **Add custom connector** → paste the URL. Then ask
 | `VOLTUNE_THREADS` | auto | ONNX Runtime threads. |
 | `PUBLIC_URL` | from request | Base URL used in audio links. |
 | `VOLTUNE_KEEP` | 200 | Renders kept on disk. |
+
+## For animation
+
+```bash
+node dist/cli.js scene bundle.json -o out/          # or a script .txt
+node dist/cli.js analyze any.wav --timeline out/scene.json -o check/
+node dist/cli.js avcheck final.mp4 --scene out/ --mouth drawn-mouths.json
+node dist/cli.js pull https://voltune.<you>.workers.dev --script <id> -o bundle.json   # when the network allows
+```
+
+| File | Contents |
+| --- | --- |
+| `scene.wav`, `lines/NN_Speaker.wav` | The scene and each line. |
+| `scene.json` | Timeline (speaker, text, delivery, start, end), cast, voice codes. |
+| `lipsync.json` | Per character, per video frame: `open` (0–1) and `shapes` (M closed, A open, E wide, O round). |
+| `spectrogram.png` | Spectrogram with pitch contour, a coloured lane per speaker, loudness strip. |
+| `report.md` / `report.json` | Per line: pitch (median, range), pace (wpm), level, peak, brightness, breathiness, clipping, transcript and word error rate, delivery checks. Per speaker baselines, "voices sound alike" warnings, a 0–100 score. |
+
+`avcheck` extracts the video's soundtrack, cross-correlates it with `scene.wav` to measure offset and drift, compares levels, and — given the per-frame mouth values the animation drew (`{"fps":30,"tracks":{"Name":[…]}}`) — reports correlation, lag in frames and mouths left open during silence.
+
+Transcripts use Whisper tiny.en via `sherpa-onnx-node` (optional dependency); the model (~118 MB) downloads from GitHub on first use, or set `VOLTUNE_ASR_DIR`. Pass `--no-asr` to skip.
 
 ## CLI
 
