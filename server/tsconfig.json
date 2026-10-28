@@ -11,5 +11,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["src", "../src/engine"]
+  "include": ["src"]
 }
