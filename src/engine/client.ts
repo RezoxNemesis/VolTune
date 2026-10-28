@@ -1,5 +1,5 @@
 import type { Device, FromWorker, Job, ToWorker } from "./protocol";
-import { polish, SAMPLE_RATE, toInt16 } from "./audio";
+import { SAMPLE_RATE, toInt16 } from "./audio";
 import { nextStartSample, type ClipMeta, type ClipStore } from "./store";
 import { Capacitor } from "@capacitor/core";
 import { NATIVE_MODEL_FILE, NATIVE_MODEL_URL, NativeTts, decodePcm16 } from "../native/plugins";
@@ -15,6 +15,10 @@ export interface Segment {
   pauseMs: number;
   voice: string;
   speed: number;
+  pitch?: number;
+  gain?: number;
+  soft?: number;
+  edge?: number;
 }
 
 export interface GenerateOptions {
@@ -172,7 +176,7 @@ export class SpeechEngine {
     const jobs: Job[] = [];
     for (let index = first; index < segments.length; index++) {
       const s = segments[index]!;
-      jobs.push({ index, text: s.text, voice: s.voice, speed: s.speed });
+      jobs.push({ index, text: s.text, voice: s.voice, speed: s.speed, pitch: s.pitch, gain: s.gain, soft: s.soft, edge: s.edge });
     }
     if (jobs.length === 0) {
       this.active = null;
@@ -204,8 +208,8 @@ export class SpeechEngine {
       case "chunk": {
         const a = this.active;
         if (!a || msg.id !== a.id) return;
-        const rate = msg.sampleRate || SAMPLE_RATE;
-        this.pending.set(msg.index, polish(msg.pcm, rate));
+        // The worker already polished and shaped the clip (see synth.ts).
+        this.pending.set(msg.index, msg.pcm);
         this.chain = this.chain.then(() => this.flush(a.id)).catch((e) => this.fail(e instanceof Error ? e.message : "Storage failed", "storage"));
         break;
       }

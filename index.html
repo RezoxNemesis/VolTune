@@ -33,6 +33,7 @@
           <button role="tab" id="tab-dialogue" aria-selected="false" aria-controls="panel" data-mode="dialogue" tabindex="-1">Dialogue</button>
           <span class="tab-ink" aria-hidden="true"></span>
         </div>
+        <button class="btn quiet lab-open" id="lab-open" type="button" aria-haspopup="dialog">Voices</button>
       </header>
 
       <div class="load" id="load" hidden aria-hidden="true"><span></span></div>
@@ -47,6 +48,7 @@
             <label class="sr-only" for="text">Text to speak</label>
             <textarea id="text" class="script" spellcheck="true" rows="5" maxlength="250000" placeholder="Type or paste what you want to hear."></textarea>
             <div class="cast" id="cast" hidden></div>
+            <div class="tips-wrap" id="tips" hidden></div>
           </div>
           <div class="stage" id="stage" hidden aria-live="off"></div>
         </section>
@@ -55,6 +57,7 @@
           <p class="status" id="status" role="status" aria-live="polite"></p>
           <div class="aside">
             <button class="link" id="edit" type="button" hidden>Edit text</button>
+            <button class="link" id="tips-toggle" type="button" hidden aria-controls="tips" aria-expanded="false">Script tips</button>
             <p class="count" id="count"></p>
           </div>
         </div>

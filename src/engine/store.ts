@@ -205,8 +205,11 @@ export async function openStore(): Promise<{ store: ClipStore; persistent: boole
 }
 
 /** Stable identifier for a render plan, so identical requests can resume. */
-export async function hashPlan(plan: ReadonlyArray<{ text: string; voice: string; speed: number; pauseMs: number }>): Promise<string> {
-  const s = JSON.stringify(plan.map((p) => [p.text, p.voice, p.speed, p.pauseMs]));
+export async function hashPlan(
+  plan: ReadonlyArray<{ text: string; voice: string; speed: number; pauseMs: number; pitch?: number; gain?: number; soft?: number; edge?: number }>,
+): Promise<string> {
+  // Delivery fields join the key only when used, so plain plans keep the hashes they always had.
+  const s = JSON.stringify(plan.map((p) => (p.pitch || p.gain || p.soft || p.edge ? [p.text, p.voice, p.speed, p.pauseMs, p.pitch ?? 0, p.gain ?? 1, p.soft ?? 0, p.edge ?? 0] : [p.text, p.voice, p.speed, p.pauseMs])));
   try {
     if (globalThis.crypto?.subtle) {
       const d = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));

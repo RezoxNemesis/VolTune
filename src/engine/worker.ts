@@ -1,9 +1,9 @@
 /// <reference lib="webworker" />
 import { KokoroTTS, env } from "kokoro-js";
-import { AutoTokenizer, Tensor, env as hfEnv } from "@huggingface/transformers";
+import { Tensor, env as hfEnv } from "@huggingface/transformers";
 import { phonemize } from "phonemizer";
-import { hindiPhonemize } from "./hindi";
-import { isHindiVoice } from "./voices";
+import { synthesize, VOICES_URL, type ModelRunner } from "./synth";
+import { VoiceTables } from "./voicebank";
 import type { Device, FromWorker, ToWorker } from "./protocol";
 
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
@@ -17,35 +17,62 @@ if (self.crossOriginIsolated && hfEnv.backends.onnx.wasm) {
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
 
-let tts: KokoroTTS | null = null;
+let run: ModelRunner | null = null;
 let loading: Promise<void> | null = null;
 const cancelled = new Set<number>();
 
 const waiting = new Map<number, { resolve: (w: Float32Array) => void; reject: (e: Error) => void }>();
 let nextReq = 1;
 
-/**
- * Stand-in for the ONNX model when inference runs natively on Android: kokoro-js still prepares the
- * phonemes and tokens, and this hands the numeric step to the main thread, which calls the plugin.
- */
-function nativeModel() {
-  return async (inputs: { input_ids: { data: BigInt64Array }; style: { data: Float32Array }; speed: { data: Float32Array } }) => {
-    const reqId = nextReq++;
-    const result = new Promise<Float32Array>((resolve, reject) => waiting.set(reqId, { resolve, reject }));
-    post({ type: "infer", reqId, ids: new BigInt64Array(inputs.input_ids.data), style: new Float32Array(inputs.style.data), speed: inputs.speed.data[0] ?? 1 });
-    const wave = await result;
-    return { waveform: new Tensor("float32", wave, [1, wave.length]) };
+/** Stock voice tables, cached with the Cache API under the same name kokoro-js uses. */
+async function loadVoice(id: string): Promise<Float32Array> {
+  const url = `${VOICES_URL}/${id}.bin`;
+  let cache: Cache | null = null;
+  try {
+    cache = await caches.open("kokoro-voices");
+    const hit = await cache.match(url);
+    if (hit) return new Float32Array(await hit.arrayBuffer());
+  } catch {
+    cache = null;
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load voice ${id} (${res.status})`);
+  const buf = await res.arrayBuffer();
+  try {
+    await cache?.put(url, new Response(buf.slice(0), { headers: res.headers }));
+  } catch {
+    /* storage full or unavailable: still usable this session */
+  }
+  return new Float32Array(buf);
+}
+
+const tables = new VoiceTables(loadVoice);
+
+/** On Android the numeric step runs natively: hand ids + style to the main thread, which calls the plugin. */
+const nativeRunner: ModelRunner = (ids, style, speed) => {
+  const reqId = nextReq++;
+  const result = new Promise<Float32Array>((resolve, reject) => waiting.set(reqId, { resolve, reject }));
+  post({ type: "infer", reqId, ids: BigInt64Array.from(ids, (n) => BigInt(n)), style, speed });
+  return result;
+};
+
+function webRunner(tts: KokoroTTS): ModelRunner {
+  return async (ids, style, speed) => {
+    const out = (await tts.model({
+      input_ids: new Tensor("int64", BigInt64Array.from(ids, (n) => BigInt(n)), [1, ids.length]),
+      style: new Tensor("float32", style, [1, style.length]),
+      speed: new Tensor("float32", new Float32Array([speed]), [1]),
+    })) as { waveform: { data: Float32Array } };
+    return new Float32Array(out.waveform.data);
   };
 }
 
-async function loadNative(): Promise<void> {
-  const tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
-  tts = new KokoroTTS(nativeModel() as never, tokenizer as never);
-  post({ type: "ready", device: "native" });
-}
-
 async function load(device: Device): Promise<void> {
-  if (device === "native") return loadNative();
+  if (device === "native") {
+    run = nativeRunner;
+    post({ type: "ready", device: "native" });
+    return;
+  }
   const progress_callback = (p: { status?: string; loaded?: number; total?: number; file?: string }) => {
     if (p.status === "progress" && typeof p.loaded === "number" && typeof p.total === "number") {
       post({ type: "progress", loaded: p.loaded, total: p.total, file: p.file ?? "" });
@@ -61,7 +88,8 @@ async function load(device: Device): Promise<void> {
   let lastError: unknown;
   for (const a of attempts) {
     try {
-      tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: a.dtype, device: a.device, progress_callback });
+      const tts = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: a.dtype, device: a.device, progress_callback });
+      run = webRunner(tts);
       post({ type: "ready", device: a.device });
       return;
     } catch (e) {
@@ -88,27 +116,19 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
     } else if (msg.type === "cancel") {
       cancelled.add(msg.id);
     } else if (msg.type === "generate") {
-      if (!tts) {
+      if (!run) {
         await loading;
-        if (!tts) throw new Error("The speech engine is not loaded yet.");
+        if (!run) throw new Error("The speech engine is not loaded yet.");
       }
+      const runner = run;
       for (const job of msg.jobs) {
         if (cancelled.has(msg.id)) {
           cancelled.delete(msg.id);
           post({ type: "cancelled", id: msg.id });
           return;
         }
-        let audio;
-        if (isHindiVoice(job.voice)) {
-          // kokoro-js only phonemizes English, so Hindi is converted here and fed in as token ids.
-          const phonemes = await hindiPhonemize(job.text, async (run) => (await phonemize(run, "en-us")).join(" "));
-          const { input_ids } = tts.tokenizer(phonemes, { truncation: true });
-          audio = await tts.generate_from_ids(input_ids, { voice: job.voice as never, speed: job.speed });
-        } else {
-          audio = await tts.generate(job.text, { voice: job.voice as never, speed: job.speed });
-        }
-        const pcm = new Float32Array(audio.audio);
-        post({ type: "chunk", id: msg.id, index: job.index, pcm, sampleRate: audio.sampling_rate }, [pcm.buffer]);
+        const pcm = await synthesize(job, { phonemize, tables, run: runner });
+        post({ type: "chunk", id: msg.id, index: job.index, pcm, sampleRate: 24_000 }, [pcm.buffer]);
       }
       if (cancelled.delete(msg.id)) post({ type: "cancelled", id: msg.id });
       else post({ type: "done", id: msg.id });
