@@ -93,3 +93,16 @@ describe("Hindi lexicon and affricates", () => {
     expect(devanagariToPhonemes("जवाब")).toBe("ʤəʋaːb");
   });
 });
+
+describe("Hindi reactions and storyteller", () => {
+  it("says reaction sounds in Hindi for a Hindi voice", async () => {
+    const { buildPlan } = await import("../src/engine/plan");
+    const plan = buildPlan("Ravi: (laughs) Sach mein?", { mode: "dialogue", speed: 1, pauseScale: 1, voice: "hf_alpha", cast: { Ravi: "hf_alpha" }, customs: [] } as any);
+    expect(plan.items.some((it: any) => it.text === "हा हा!")).toBe(true);
+  });
+  it("keeps the English reaction for an English voice", async () => {
+    const { buildPlan } = await import("../src/engine/plan");
+    const plan = buildPlan("Ravi: (laughs) Really?", { mode: "dialogue", speed: 1, pauseScale: 1, voice: "af_heart", cast: {}, customs: [] } as any);
+    expect(plan.items.some((it: any) => it.text === "Haha!")).toBe(true);
+  });
+});

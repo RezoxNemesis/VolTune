@@ -1,9 +1,9 @@
 import { autoAssignVoices, parseScript, segmentText, type Segment } from "./dialogue";
 import { splitLong, toChunks } from "./text";
-import { devanagariShare } from "./hindi";
+import { devanagariShare, HINDI_REACTIONS } from "./hindi";
 import { hindiVoiceFor, isHindiVoice } from "./voices";
 import { NEUTRAL } from "./delivery";
-import { PRESETS, resolveVoice, type CustomVoice } from "./voicebank";
+import { mixLang, parseMix, PRESETS, resolveVoice, type CustomVoice } from "./voicebank";
 
 export interface PlanItem {
   text: string;
@@ -103,10 +103,14 @@ function itemsFor(
     const chunks = seg.sound ? [{ text: seg.text, pauseMs: 160 }] : toChunks(seg.text);
     chunks.forEach((c, i) => {
       const last = i === chunks.length - 1;
+      const voice = voiceForText(v.mix, c.text);
+      // A Hindi voice says reaction sounds in Hindi ("Haha!" → "हा हा!"); other voices keep the English.
+      const hindiVoice = mixLang(parseMix(voice)) === "h";
+      const text = seg.sound && hindiVoice ? HINDI_REACTIONS[c.text] ?? c.text : c.text;
       out.push({
-        text: c.text,
+        text,
         pauseMs: Math.round(c.pauseMs * d.pause) + (last ? seg.pauseAfterMs ?? 0 : 0),
-        voice: voiceForText(v.mix, c.text),
+        voice: seg.sound && hindiVoice ? voiceForText(voice, text) : voice,
         speed: r2(Math.min(1.6, Math.max(0.55, o.speed * v.speed * (extra.speed ?? 1) * d.speed))),
         pitch: r2(v.pitch + (extra.pitch ?? 0) + d.pitch),
         gain: r2(d.gain),

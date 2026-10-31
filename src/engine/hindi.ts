@@ -273,3 +273,20 @@ export async function hindiPhonemize(text: string, english: (run: string) => Pro
   }
   return parts.join("").replace(/ {2,}/g, " ").replace(/\s+([,.;:!?])/g, "$1").trim();
 }
+
+/** Reaction sounds (from delivery.ts) written as Hindi, so a Hindi voice says them naturally. */
+export const HINDI_REACTIONS: Readonly<Record<string, string>> = Object.freeze({
+  "Haha!": "हा हा!",
+  "Heh.": "हेह।",
+  "Hehe!": "हे हे!",
+  "Hhh...": "हह्...",
+  "Oh!": "ओह!",
+  "Ugh.": "उफ़।",
+  "Ahem.": "अहम्।",
+  "Ahem!": "अहम्!",
+  "Hmm...": "हम्म...",
+  "Hm.": "हम्म।",
+  "Aaah!": "आह!",
+  "Haaah...": "हाह...",
+  "Wow!": "वाह!",
+});
