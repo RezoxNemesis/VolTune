@@ -80,3 +80,16 @@ describe("script handling", () => {
     expect(items[items.length - 1]!.voice.startsWith("h")).toBe(false);
   });
 });
+
+describe("Hindi lexicon and affricates", () => {
+  it("uses fixed pronunciations for common auxiliaries and postpositions", () => {
+    expect(devanagariToPhonemes("है")).toBe("hɛː");
+    expect(devanagariToPhonemes("हैं")).toBe("hɛ̃ː");
+    expect(devanagariToPhonemes("चाहिए")).toBe("tʃaːhie");
+    expect(devanagariToPhonemes("को")).toBe("koː");
+  });
+  it("writes च and ज as affricates, not palatal stops", () => {
+    expect(devanagariToPhonemes("बचपन")).toBe("bəʧpən");
+    expect(devanagariToPhonemes("जवाब")).toBe("ʤəʋaːb");
+  });
+});

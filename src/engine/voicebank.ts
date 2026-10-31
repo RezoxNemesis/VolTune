@@ -112,6 +112,7 @@ export const PRESETS: readonly CustomVoice[] = [
   P("pre_storyteller", "Storyteller", "Female", "US", "Narration · warm, intimate", "af_heart*0.6+af_aoede*0.4", -0.4, 0.96),
   P("pre_indian_woman", "Indian woman", "Female", "India", "Indian English · warm, clear", "hf_alpha*0.6+hf_beta*0.4", 0, 0.98),
   P("pre_indian_man", "Indian man", "Male", "India", "Indian English · steady, friendly", "hm_omega*0.6+hm_psi*0.4", 0, 0.98),
+  P("pre_indian_villain", "Indian villain", "Male", "India", "Hindi & Indian English · low, cold, measured", "hm_omega*0.7+hm_psi*0.3", -2.5, 0.93),
 ];
 
 /** A preset or custom voice by id, or by its display name ("Teen girl", "rusty"). */

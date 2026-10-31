@@ -61,7 +61,7 @@ export function hindiNormalize(line: string): string {
 
 const CONS: Record<string, string> = {
   क: "k", ख: "kʰ", ग: "ɡ", घ: "ɡʰ", ङ: "ŋ",
-  च: "c", छ: "cʰ", ज: "ɟ", झ: "ɟʰ", ञ: "ɲ",
+  च: "ʧ", छ: "ʧʰ", ज: "ʤ", झ: "ʤʰ", ञ: "ɲ",
   ट: "ʈ", ठ: "ʈʰ", ड: "ɖ", ढ: "ɖʰ", ण: "ɳ",
   त: "t", थ: "tʰ", द: "d", ध: "dʰ", न: "n",
   प: "p", फ: "pʰ", ब: "b", भ: "bʰ", म: "m",
@@ -93,7 +93,7 @@ function mergeCluster(cons: string[]): string {
     if (c === "k" && n === "ʂ") {
       out.push("kʃ");
       i++;
-    } else if (c === "ɟ" && n === "ɲ") {
+    } else if (c === "ʤ" && n === "ɲ") {
       out.push("ɡj");
       i++;
     } else if (n === c && c.length <= 2 && !c.endsWith("ʰ")) {
@@ -142,9 +142,11 @@ function parseWord(word: string): Akshara[] {
     } else if (ch === "ं" || ch === "ँ") {
       // Anusvara before a consonant is a nasal consonant that shares its place (बंदर → bəndər, पंजाब → pəndʒaːb).
       // Word-final or before a vowel it is a nasalised vowel (हूँ, मैं).
+      // After a long vowel the anusvara is a nasalised vowel (मैंने → mɛ̃ːne, not mɛːnneː).
       const last = out[out.length - 1];
       const nxt = ch === "ं" ? consAt(i + 1) : undefined;
-      if (last && nxt !== undefined) last.nasalCoda = homorganicNasal(nxt);
+      const longVowel = last?.vowel.kind === "ph" && last.vowel.ph.endsWith("ː");
+      if (last && nxt !== undefined && !longVowel) last.nasalCoda = homorganicNasal(nxt);
       else if (last) last.nasal = true;
       i++;
     } else if (ch === "ः") {
@@ -211,11 +213,29 @@ function render(a: Akshara[]): string {
 }
 
 /** Phonemes for one run of Devanagari text (words separated by spaces). */
+/**
+ * Fixed pronunciations for the most frequent Hindi words, where the letter rules alone are unreliable
+ * (auxiliaries, postpositions, pronouns and common verb forms). They make grammatical endings such as
+ * है, हैं, हूँ, में, रहा/रही/रहे and चाहिए sound right every time.
+ */
+const LEXICON: Record<string, string> = {
+  है: "hɛː", हैं: "hɛ̃ː", हूँ: "hũː", हूं: "hũː", हो: "hoː", था: "tʰaː", थी: "tʰiː", थे: "tʰeː",
+  में: "mẽː", मैं: "mɛ̃ː", मुझे: "mʊdʒʰeː", मुझको: "mʊdʒʰkoː", हम: "həm", हमें: "həmẽː", तुम: "tʊm", तुम्हें: "tʊmʰẽː", आप: "aːp", आपका: "aːpkaː",
+  यह: "jəh", वह: "vəh", ये: "jeː", वो: "voː", को: "koː", से: "seː", का: "kaː", की: "kiː", के: "keː",
+  कि: "kɪ", और: "ɔɾ", या: "jaː", तो: "toː", भी: "biː", ही: "hiː", नहीं: "nəhĩː", क्या: "kjaː", क्यों: "kjõː", कैसे: "kɛseː",
+  रहा: "ɾəhaː", रही: "ɾəhiː", रहे: "ɾəheː", गया: "ɡəjaː", गई: "ɡəiː", गए: "ɡəeː", करो: "kəɾo", कर: "kəɾ", करना: "kəɾnaː", किया: "kɪjaː",
+  चाहिए: "tʃaːhie", होगा: "hoːɡaː", होगी: "hoːɡiː", हुआ: "hʊaː", लोग: "loːɡ", कल: "kəl", आज: "aːdʒ", अब: "əb", बहुत: "bəhʊt", सब: "səb",
+};
+
 export function devanagariToPhonemes(text: string): string {
   return text
     .normalize("NFC")
     .split(/(\s+)/)
-    .map((w) => (/\s/.test(w) || w === "" ? w : render(deleteSchwasCopy(parseWord(w)))))
+    .map((w) => {
+      if (/\s/.test(w) || w === "") return w;
+      const fixed = LEXICON[w];
+      return fixed ?? render(deleteSchwasCopy(parseWord(w)));
+    })
     .join("");
 }
 
