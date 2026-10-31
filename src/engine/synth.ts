@@ -6,6 +6,7 @@
  * everywhere.
  */
 import { colour, pitchShift, polish, SAMPLE_RATE } from "./audio";
+import { indianEnglish } from "./accent";
 import { hindiPhonemize } from "./hindi";
 import { englishPhonemes, MAX_TOKENS, tokenize, type Phonemizer } from "./phonemes";
 import { mixLang, parseMix, styleRow, type VoiceTables } from "./voicebank";
@@ -23,7 +24,8 @@ export interface SynthDeps {
 /** Text → phonemes for the voice's language. */
 export async function phonemesFor(text: string, voice: string, phonemize: Phonemizer): Promise<string> {
   const lang = mixLang(parseMix(voice));
-  if (lang === "h") return hindiPhonemize(text, async (run) => (await phonemize(run, "en-us")).join(" "));
+  // Hindi voices read English lines with Indian English pronunciation (see accent.ts).
+  if (lang === "h") return hindiPhonemize(text, async (run) => indianEnglish((await phonemize(run, "en-us")).join(" ")));
   return englishPhonemes(text, lang, phonemize);
 }
 

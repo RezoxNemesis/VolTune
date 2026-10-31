@@ -74,13 +74,14 @@ const MATRA: Record<string, string> = { "ा": "aː", "ि": "ɪ", "ी": "iː",
 const VIRAMA = "्";
 const NUKTA_MARK = "़";
 const TILDE = "̃";
-const LONG = new Set(["aː", "iː", "uː", "eː", "ɛː", "oː", "ɔː"]);
 
 type Vowel = { kind: "inh" } | { kind: "ph"; ph: string } | { kind: "none" };
 interface Akshara {
   cons: string[];
   vowel: Vowel;
   nasal: boolean;
+  /** Homorganic nasal consonant written by an anusvara before another consonant (बंदर → bəndər). */
+  nasalCoda?: string;
   coda: string;
 }
 
@@ -139,7 +140,12 @@ function parseWord(word: string): Akshara[] {
       out.push({ cons: [], vowel: { kind: "ph", ph: INDEP[ch]! }, nasal: false, coda: "" });
       i++;
     } else if (ch === "ं" || ch === "ँ") {
-      if (out.length) out[out.length - 1]!.nasal = true;
+      // Anusvara before a consonant is a nasal consonant that shares its place (बंदर → bəndər, पंजाब → pəndʒaːb).
+      // Word-final or before a vowel it is a nasalised vowel (हूँ, मैं).
+      const last = out[out.length - 1];
+      const nxt = ch === "ं" ? consAt(i + 1) : undefined;
+      if (last && nxt !== undefined) last.nasalCoda = homorganicNasal(nxt);
+      else if (last) last.nasal = true;
       i++;
     } else if (ch === "ः") {
       if (out.length) out[out.length - 1]!.coda += "h";
@@ -161,48 +167,45 @@ function deleteSchwas(a: Akshara[]): void {
       continue;
     }
     const next = a[i + 1]!;
-    if (i > 0 && next.cons.length === 1 && alive(next)) cur.vowel = { kind: "none" };
+    // A schwa after a closed syllable (बंदर, संस्कृत) is kept, so the nasal coda does not lose its vowel.
+    const closedBefore = Boolean(a[i - 1]?.nasalCoda);
+    if (i > 0 && next.cons.length === 1 && alive(next) && !closedBefore) cur.vowel = { kind: "none" };
   }
 }
 
-const UNSTRESSED_WORDS = new Set(["और", "वह", "यह", "कर", "जो", "कि", "तब", "जब", "सब", "अब", "कब", "यहाँ", "वहाँ"]);
+/** The nasal consonant that an anusvara turns into before the given consonant (espeak-style). */
+function homorganicNasal(c: string): string {
+  const base = c.replace(/ʰ$/, "");
+  // Before a velar (k, g, h) the nasal is ŋ (सिंह → sɪŋɦ). Before palatal affricates common speech uses n (पंजाब → pəndʒaːb).
+  if (["k", "ɡ", "x", "ɣ", "h"].includes(base)) return "ŋ";
+  if (["ʈ", "ɖ", "ɽ"].includes(base)) return "ɳ";
+  if (["p", "b", "f", "m"].includes(base)) return "m";
+  return "n";
+}
 
-function render(a: Akshara[], word: string): string {
+/**
+ * Hindi has no English-style word stress: the inherent vowel is a plain schwa and the
+ * sentence melody comes from the model, so no stress marks are written.
+ */
+function render(a: Akshara[]): string {
   const alive = a.map((x, i) => (x.vowel.kind !== "none" ? i : -1)).filter((i) => i >= 0);
-  let stress = -1;
-  if (alive.length >= 2) {
-    const nonFinal = alive.slice(0, -1);
-    const isLong = (i: number) => {
-      const v = a[i]!.vowel;
-      return v.kind === "ph" && LONG.has(v.ph);
-    };
-    stress =
-      nonFinal.find(isLong) ??
-      nonFinal.find((i) => a[i]!.nasal || (a[i + 1]?.cons.length ?? 0) > 1) ??
-      alive[0]!;
-  } else if (alive.length === 1 && !UNSTRESSED_WORDS.has(word)) {
-    // A one-syllable word that closes on a consonant carries the stress.
-    const closed = a.some((x, i) => i > alive[0]! && x.cons.length > 0);
-    if (closed) stress = alive[0]!;
-  }
   const lastAlive = alive[alive.length - 1];
   let s = "";
   a.forEach((x, i) => {
     s += mergeCluster(x.cons);
-    let v = x.vowel.kind === "inh" ? (i === stress ? "ʌ" : "ə") : x.vowel.kind === "ph" ? x.vowel.ph : "";
+    let v = x.vowel.kind === "inh" ? "ə" : x.vowel.kind === "ph" ? x.vowel.ph : "";
     // A long "ee" at the end of a longer word is short in speech (hindi, kahani).
     if (v === "iː" && i === lastAlive && alive.length >= 2 && !x.nasal) v = "i";
     if (x.nasal) {
+      // Nasalised vowels keep their length (हूँ → hũː, में → mẽː), as in the espeak reference.
       if (!v) v = "n";
       else {
-        const base = v.endsWith("ː") ? v.slice(0, -1) : v;
-        // Nasal long vowels keep their length only for "e" (mẽː), as in the espeak reference.
-        v = v === "eː" ? `e${TILDE}ː` : `${base}${TILDE}`;
+        const long = v.endsWith("ː");
+        const base = long ? v.slice(0, -1) : v;
+        v = `${base}${TILDE}${long ? "ː" : ""}`;
       }
     }
-    if (v === "ə" && i === stress) v = "ʌ";
-    if (v && i === stress) s += "ˈ";
-    s += v + x.coda;
+    s += v + (x.nasalCoda ?? "") + x.coda;
   });
   return s;
 }
@@ -212,7 +215,7 @@ export function devanagariToPhonemes(text: string): string {
   return text
     .normalize("NFC")
     .split(/(\s+)/)
-    .map((w) => (/\s/.test(w) || w === "" ? w : render(deleteSchwasCopy(parseWord(w)), w)))
+    .map((w) => (/\s/.test(w) || w === "" ? w : render(deleteSchwasCopy(parseWord(w)))))
     .join("");
 }
 

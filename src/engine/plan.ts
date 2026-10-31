@@ -1,7 +1,7 @@
 import { autoAssignVoices, parseScript, segmentText, type Segment } from "./dialogue";
 import { splitLong, toChunks } from "./text";
 import { devanagariShare } from "./hindi";
-import { englishVoiceFor, hindiVoiceFor, isHindiVoice } from "./voices";
+import { hindiVoiceFor, isHindiVoice } from "./voices";
 import { NEUTRAL } from "./delivery";
 import { PRESETS, resolveVoice, type CustomVoice } from "./voicebank";
 
@@ -59,14 +59,17 @@ export function quickStart(items: PlanItem[], pauseScale: number, max = FIRST_MA
   return [...head, ...items.slice(1)];
 }
 
-/** Pick a voice that can actually read the text: Hindi voices for Devanagari, English voices for Latin script. */
+/**
+ * Pick a voice that can read the text. Devanagari needs a Hindi voice. A Hindi voice keeps its own
+ * timbre for English lines too (spoken with Indian English pronunciation), so an Indian voice never
+ * switches to a US voice mid-script.
+ */
 export function voiceForText(voice: string, text: string): string {
   const share = devanagariShare(text);
   const isMix = voice.includes("+") || voice.includes("*");
   const hindi = isMix ? voice.startsWith("h") : isHindiVoice(voice);
   const male = isMix ? voice[1] === "m" : undefined;
   if (share >= 0.3 && !hindi) return isMix ? (male ? "hm_omega" : "hf_alpha") : hindiVoiceFor(voice);
-  if (share === 0 && hindi && /[A-Za-z]{2}/.test(text)) return isMix ? (male ? "am_michael" : "af_heart") : englishVoiceFor(voice);
   return voice;
 }
 
