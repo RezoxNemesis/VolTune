@@ -13,6 +13,8 @@ export interface Job {
   gain?: number;
   soft?: number;
   edge?: number;
+  /** "india": speak English with Indian English pronunciation (see accent.ts). */
+  accent?: "india";
 }
 
 export type ToWorker =

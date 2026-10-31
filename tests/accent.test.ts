@@ -22,3 +22,14 @@ describe("Indian English phonemes", () => {
     for (const ch of out) expect(VOCAB[ch] !== undefined || ch === " ", `symbol ${ch}`).toBe(true);
   });
 });
+
+describe("Indian-accented English voices", () => {
+  it("marks a US voice with accent India and leaves US voices alone", async () => {
+    const { buildPlan } = await import("../src/engine/plan");
+    const opts = (cast: Record<string, string>) => ({ mode: "dialogue" as const, speed: 1, pauseScale: 1, voice: "af_heart", cast, customs: [] });
+    const indian = buildPlan("Asha: Hello there.", opts({ Asha: "Indian Bella" }) as any);
+    expect(indian.items.some((it: any) => it.accent === "india")).toBe(true);
+    const us = buildPlan("Asha: Hello there.", opts({ Asha: "af_bella" }) as any);
+    expect(us.items.some((it: any) => it.accent === "india")).toBe(false);
+  });
+});

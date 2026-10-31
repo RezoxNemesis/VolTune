@@ -114,6 +114,8 @@ export const PRESETS: readonly CustomVoice[] = [
   P("pre_indian_man", "Indian man", "Male", "India", "Indian English · steady, friendly", "hm_omega*0.6+hm_psi*0.4", 0, 0.98),
   P("pre_indian_villain", "Indian villain", "Male", "India", "Hindi & Indian English · low, cold, measured", "hm_omega*0.7+hm_psi*0.3", -2.5, 0.93),
   P("pre_hindi_storyteller", "Hindi storyteller", "Male", "India", "Hindi · warm, steady, unhurried", "hm_psi*0.6+hm_omega*0.4", -1, 0.97),
+  P("pre_indian_bella", "Indian Bella", "Female", "India", "English with Indian accent · bright, clear", "af_bella", 0, 1),
+  P("pre_indian_michael", "Indian Michael", "Male", "India", "English with Indian accent · grounded, natural", "am_michael", 0, 1),
 ];
 
 /** A preset or custom voice by id, or by its display name ("Teen girl", "rusty"). */
@@ -131,6 +133,8 @@ export interface ResolvedVoice {
   pitch: number;
   speed: number;
   gender: "Female" | "Male";
+  /** "India" for an Indian-accented voice (its English is spoken with Indian pronunciation). */
+  accent?: "US" | "UK" | "India";
 }
 
 /** Any voice reference — stock id, preset/custom id, or a mix expression — to what the engine needs. */
@@ -138,7 +142,7 @@ export function resolveVoice(ref: string, customs: readonly CustomVoice[] = []):
   const custom = findVoice(ref, customs);
   if (custom) {
     const mix = custom.recipe.mix;
-    return { mix: mixToString(mix), lang: mixLang(mix), pitch: custom.recipe.pitch, speed: custom.recipe.speed, gender: custom.gender };
+    return { mix: mixToString(mix), lang: mixLang(mix), pitch: custom.recipe.pitch, speed: custom.recipe.speed, gender: custom.gender, accent: custom.accent };
   }
   let mix: Mix;
   try {

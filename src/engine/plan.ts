@@ -20,6 +20,8 @@ export interface PlanItem {
   edge?: number;
   /** Delivery marks that shaped this item, e.g. ["whisper"]. */
   tags?: string[];
+  /** "india": a non-Hindi voice that speaks English with Indian English pronunciation. */
+  accent?: "india";
   speaker?: string;
   /** Which speaker turn (or 0 for plain narration) the item belongs to. */
   turn: number;
@@ -117,6 +119,7 @@ function itemsFor(
         soft: r2(d.soft),
         edge: r2(d.edge),
         tags: d.tags.length ? [...d.tags] : undefined,
+        accent: v.accent === "India" && mixLang(parseMix(voice)) !== "h" ? "india" : undefined,
         speaker: meta.speaker,
         turn: meta.turn,
       });
@@ -133,6 +136,7 @@ function compact(it: PlanItem): PlanItem {
   if (!o.soft) delete o.soft;
   if (!o.edge) delete o.edge;
   if (!o.tags) delete o.tags;
+  if (!o.accent) delete o.accent;
   if (o.speaker === undefined) delete o.speaker;
   return o;
 }

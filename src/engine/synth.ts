@@ -23,8 +23,10 @@ export interface SynthDeps {
 }
 
 /** Text → phonemes for the voice's language. */
-export async function phonemesFor(text: string, voice: string, phonemize: Phonemizer): Promise<string> {
+export async function phonemesFor(text: string, voice: string, phonemize: Phonemizer, accent?: "india"): Promise<string> {
   const lang = mixLang(parseMix(voice));
+  // An Indian-accented English voice (a US or UK voice with accent "India") gets the same mapping.
+  if (accent === "india" && lang !== "h") return indianEnglish(await englishPhonemes(text, lang, phonemize));
   // Hindi voices read English lines with Indian English pronunciation (see accent.ts), and romanised
   // Hindi words (Hinglish) with Hindi pronunciation (see hinglish.ts).
   if (lang === "h") return hindiPhonemize(hinglishToDevanagari(text), async (run) => indianEnglish((await phonemize(run, "en-us")).join(" ")));
@@ -41,7 +43,7 @@ export function shape(pcm: Float32Array, job: Pick<Job, "pitch" | "gain" | "soft
 
 /** Synthesize one job and return polished, delivery-shaped audio. */
 export async function synthesize(job: Job, deps: SynthDeps): Promise<Float32Array> {
-  const phonemes = await phonemesFor(job.text, job.voice, deps.phonemize);
+  const phonemes = await phonemesFor(job.text, job.voice, deps.phonemize, job.accent);
   let ids = tokenize(phonemes);
   if (ids.length > MAX_TOKENS + 2) ids = [...ids.slice(0, MAX_TOKENS + 1), 0];
   const table = await deps.tables.table(job.voice);
