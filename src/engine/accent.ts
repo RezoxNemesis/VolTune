@@ -2,7 +2,7 @@
  * Indian English. Kokoro's Hindi voices read English through the US English phonemes from espeak;
  * this moves those phonemes towards how Indian English is usually spoken, so an Indian voice sounds
  * Indian when it reads English as well as Hindi:
- *  - dental "th" becomes t and d (think → tink, this → dis), as in most Indian English;
+ *  - dental "th" is kept as espeak gives it: the mapping to t and d cost too much clarity (see tests);
  *  - "r" is a tap between vowels (very, carry) and a retroflex approximant elsewhere;
  *  - "v" is a w-like ʋ, and "w" stays;
  *  - the diphthongs ei and ou are pure vowels (say → seː, go → goː), and æ is closer to ɛ;
@@ -15,8 +15,6 @@ const PAIRS: ReadonlyArray<readonly [string, string]> = [
   ["oʊ", "oː"],
   ["əʊ", "oː"],
   ["ɚ", "əɻ"],
-  ["θ", "t"],
-  ["ð", "d"],
   ["v", "ʋ"],
   ["æ", "ɛ"],
   ["ʌ", "ə"],

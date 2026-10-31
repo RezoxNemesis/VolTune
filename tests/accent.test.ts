@@ -3,9 +3,9 @@ import { indianEnglish } from "../src/engine/accent";
 import { VOCAB } from "../src/engine/phonemes";
 
 describe("Indian English phonemes", () => {
-  it("uses dental t and d for th, and a tapped r between vowels", () => {
-    expect(indianEnglish("θɪŋk")).toBe("tɪŋk");
-    expect(indianEnglish("ðɪs")).toBe("dɪs");
+  it("uses a tapped r between vowels and keeps th (clearer than t/d)", () => {
+    expect(indianEnglish("θɪŋk")).toBe("θɪŋk");
+    expect(indianEnglish("ðɪs")).toBe("ðɪs");
     expect(indianEnglish("vɛɹi")).toBe("ʋɛɾi");
     expect(indianEnglish("kæɹi")).toBe("kɛɾi");
   });
