@@ -25,15 +25,19 @@ describe("Hindi numbers", () => {
 
 describe("Devanagari → phonemes", () => {
   const cases: Array<[string, string]> = [
-    ["बहुत", "bˈʌhʊt"], // word-final schwa dropped
-    ["नमस्ते", "nəmˈʌsteː"], // schwa kept before a conjunct
-    ["सुंदर", "sˈʊ̃dəɾ"],
-    ["कृपया", "kˈɾɪpjaː"], // medial schwa dropped
-    ["मदद", "mˈʌdəd"],
+    ["बहुत", "bəhʊt"], // word-final schwa dropped
+    ["नमस्ते", "nəməsteː"], // schwa kept before a conjunct, no stress marks
+    ["सुंदर", "sʊndəɾ"], // anusvara before a consonant is a nasal consonant
+    ["बंदर", "bəndəɾ"],
+    ["गंगा", "ɡəŋɡaː"],
+    ["हूँ", "hũː"], // nasalised long vowel keeps its length
+    ["रहा", "ɾəhaː"],
+    ["कृपया", "kɾɪpjaː"], // medial schwa dropped
+    ["मदद", "mədəd"],
     ["है", "hɛː"],
     ["में", "mẽː"],
-    ["ज्ञान", "ɡjˈaːn"],
-    ["क्षमा", "kʃˈʌmaː"],
+    ["ज्ञान", "ɡjaːn"],
+    ["क्षमा", "kʃəmaː"],
   ];
   for (const [word, ph] of cases) it(`${word} → ${ph}`, () => expect(devanagariToPhonemes(word).normalize("NFD")).toBe(ph.normalize("NFD")));
 
@@ -66,12 +70,39 @@ describe("script handling", () => {
   it("chooses a Hindi voice for Devanagari and an English voice for English", () => {
     expect(voiceForText("af_heart", "नमस्ते दोस्तों")).toBe("hf_alpha");
     expect(voiceForText("bm_george", "नमस्ते दोस्तों")).toBe("hm_omega");
-    expect(voiceForText("hf_beta", "Good morning everyone")).toBe("af_heart");
+    expect(voiceForText("hf_beta", "Good morning everyone")).toBe("hf_beta");
+    expect(voiceForText("hm_omega", "Good morning everyone")).toBe("hm_omega");
     expect(voiceForText("hf_beta", "नमस्ते")).toBe("hf_beta");
   });
   it("builds a plan with the right voice per line in a mixed dialogue", () => {
     const { items } = buildPlan("Asha: नमस्ते, कैसे हो?\nJon: I am fine, thanks.", { ...base, mode: "dialogue" });
     expect(items[0]!.voice.startsWith("h")).toBe(true);
     expect(items[items.length - 1]!.voice.startsWith("h")).toBe(false);
+  });
+});
+
+describe("Hindi lexicon and affricates", () => {
+  it("uses fixed pronunciations for common auxiliaries and postpositions", () => {
+    expect(devanagariToPhonemes("है")).toBe("hɛː");
+    expect(devanagariToPhonemes("हैं")).toBe("hɛ̃ː");
+    expect(devanagariToPhonemes("चाहिए")).toBe("tʃaːhie");
+    expect(devanagariToPhonemes("को")).toBe("koː");
+  });
+  it("writes च and ज as affricates, not palatal stops", () => {
+    expect(devanagariToPhonemes("बचपन")).toBe("bəʧpən");
+    expect(devanagariToPhonemes("जवाब")).toBe("ʤəʋaːb");
+  });
+});
+
+describe("Hindi reactions and storyteller", () => {
+  it("says reaction sounds in Hindi for a Hindi voice", async () => {
+    const { buildPlan } = await import("../src/engine/plan");
+    const plan = buildPlan("Ravi: (laughs) Sach mein?", { mode: "dialogue", speed: 1, pauseScale: 1, voice: "hf_alpha", cast: { Ravi: "hf_alpha" }, customs: [] } as any);
+    expect(plan.items.some((it: any) => it.text === "हा हा!")).toBe(true);
+  });
+  it("keeps the English reaction for an English voice", async () => {
+    const { buildPlan } = await import("../src/engine/plan");
+    const plan = buildPlan("Ravi: (laughs) Really?", { mode: "dialogue", speed: 1, pauseScale: 1, voice: "af_heart", cast: {}, customs: [] } as any);
+    expect(plan.items.some((it: any) => it.text === "Haha!")).toBe(true);
   });
 });

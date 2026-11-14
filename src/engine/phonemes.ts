@@ -24,9 +24,12 @@ export const VOCAB: Readonly<Record<string, number>> = Object.freeze({
 export const MAX_TOKENS = 510;
 
 /** Phoneme string → token ids, padded with 0 at both ends. Unknown symbols are skipped. */
+// Nasal vowels written precomposed (ũ, ẽ …) are a base vowel plus a combining tilde in the model's vocabulary.
+const NASAL: Record<string, string> = { "\u00e3": "a\u0303", "\u1ebd": "e\u0303", "\u0129": "i\u0303", "\u00f5": "o\u0303", "\u0169": "u\u0303" };
+
 export function tokenize(phonemes: string): number[] {
   const ids: number[] = [0];
-  for (const ch of phonemes) {
+  for (const ch of phonemes.replace(/[\u00e3\u1ebd\u0129\u00f5\u0169]/g, (c) => NASAL[c]!)) {
     const id = VOCAB[ch];
     if (id !== undefined) ids.push(id);
     if (ids.length > MAX_TOKENS) break;

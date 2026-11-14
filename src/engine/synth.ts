@@ -6,6 +6,8 @@
  * everywhere.
  */
 import { colour, pitchShift, polish, SAMPLE_RATE } from "./audio";
+import { indianEnglish } from "./accent";
+import { hinglishToDevanagari } from "./hinglish";
 import { hindiPhonemize } from "./hindi";
 import { englishPhonemes, MAX_TOKENS, tokenize, type Phonemizer } from "./phonemes";
 import { mixLang, parseMix, styleRow, type VoiceTables } from "./voicebank";
@@ -21,9 +23,13 @@ export interface SynthDeps {
 }
 
 /** Text → phonemes for the voice's language. */
-export async function phonemesFor(text: string, voice: string, phonemize: Phonemizer): Promise<string> {
+export async function phonemesFor(text: string, voice: string, phonemize: Phonemizer, accent?: "india"): Promise<string> {
   const lang = mixLang(parseMix(voice));
-  if (lang === "h") return hindiPhonemize(text, async (run) => (await phonemize(run, "en-us")).join(" "));
+  // An Indian-accented English voice (a US or UK voice with accent "India") gets the same mapping.
+  if (accent === "india" && lang !== "h") return indianEnglish(await englishPhonemes(text, lang, phonemize));
+  // Hindi voices read English lines with Indian English pronunciation (see accent.ts), and romanised
+  // Hindi words (Hinglish) with Hindi pronunciation (see hinglish.ts).
+  if (lang === "h") return hindiPhonemize(hinglishToDevanagari(text), async (run) => indianEnglish((await phonemize(run, "en-us")).join(" ")));
   return englishPhonemes(text, lang, phonemize);
 }
 
@@ -37,10 +43,10 @@ export function shape(pcm: Float32Array, job: Pick<Job, "pitch" | "gain" | "soft
 
 /** Synthesize one job and return polished, delivery-shaped audio. */
 export async function synthesize(job: Job, deps: SynthDeps): Promise<Float32Array> {
-  const phonemes = await phonemesFor(job.text, job.voice, deps.phonemize);
+  const phonemes = await phonemesFor(job.text, job.voice, deps.phonemize, job.accent);
   let ids = tokenize(phonemes);
   if (ids.length > MAX_TOKENS + 2) ids = [...ids.slice(0, MAX_TOKENS + 1), 0];
-  const table = await deps.tables.table(job.voice);
+  const table = await deps.tables.table(job.voice, job.mood, job.moodAmount ?? 1);
   const raw = await deps.run(ids, styleRow(table, ids.length), job.speed);
   return shape(polish(raw, SAMPLE_RATE), job);
 }

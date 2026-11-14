@@ -1,3 +1,5 @@
+import { LEARNED } from "./learned";
+
 export interface Voice {
   id: string;
   name: string;
@@ -6,6 +8,8 @@ export interface Voice {
   gender: "Female" | "Male";
   /** One-line character description shown in the picker. */
   tone: string;
+  /** A voice learned from real performances (learned.ts). */
+  learned?: boolean;
 }
 
 /** Curated Kokoro-82M voices. Lower-graded voices from the upstream set are left out on purpose. */
@@ -23,11 +27,12 @@ export const VOICES: readonly Voice[] = [
   { id: "am_puck", name: "Puck", accent: "US", lang: "en", gender: "Male", tone: "Playful, energetic" },
   { id: "bm_george", name: "George", accent: "UK", lang: "en", gender: "Male", tone: "Measured, authoritative" },
   { id: "bm_fable", name: "Fable", accent: "UK", lang: "en", gender: "Male", tone: "Storyteller" },
-  { id: "hf_alpha", name: "Alpha", accent: "India", lang: "hi", gender: "Female", tone: "हिन्दी · Clear, warm" },
-  { id: "hf_beta", name: "Beta", accent: "India", lang: "hi", gender: "Female", tone: "हिन्दी · Soft, gentle" },
-  { id: "hm_omega", name: "Omega", accent: "India", lang: "hi", gender: "Male", tone: "हिन्दी · Steady, deep" },
-  { id: "hm_psi", name: "Psi", accent: "India", lang: "hi", gender: "Male", tone: "हिन्दी · Calm, friendly" },
-] as const;
+  { id: "hf_alpha", name: "Alpha", accent: "India", lang: "hi", gender: "Female", tone: "Hindi & Indian English · Clear, warm" },
+  { id: "hf_beta", name: "Beta", accent: "India", lang: "hi", gender: "Female", tone: "Hindi & Indian English · Soft, gentle" },
+  { id: "hm_omega", name: "Omega", accent: "India", lang: "hi", gender: "Male", tone: "Hindi & Indian English · Steady, deep" },
+  { id: "hm_psi", name: "Psi", accent: "India", lang: "hi", gender: "Male", tone: "Hindi & Indian English · Calm, friendly" },
+  ...LEARNED.map((v) => ({ id: v.id, name: v.name, accent: "India" as const, lang: "hi" as const, gender: v.gender, tone: v.tone, learned: true })),
+];
 
 export const DEFAULT_VOICE = "af_heart";
 
@@ -48,9 +53,4 @@ export function hindiVoiceFor(id: string): string {
   const v = VOICES.find((x) => x.id === id);
   if (v?.lang === "hi") return id;
   return v?.gender === "Male" ? "hm_omega" : "hf_alpha";
-}
-
-/** The English voice to use when text is Latin script but a Hindi voice is selected. */
-export function englishVoiceFor(id: string): string {
-  return getVoice(id).gender === "Male" ? "am_michael" : "af_heart";
 }

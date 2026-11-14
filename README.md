@@ -13,10 +13,31 @@ VolTune uses the open [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) vo
   - `[pause 2s]`, `(beat)` and `---` scene breaks control timing; `#` lines are comments;
   - `@Maya = Teen girl` or `@Ghost = af_sky*0.6+am_onyx*0.4, pitch -2` picks voices inside the script.
   The **Script tips** link in the Dialogue tab lists everything.
+- **Learned voices** (Hindi and Hinglish): Shayar, Kahani, Noor, Josh, Chhotu, Gudiya, Dev, Papa, Sur and Sargam. Their delivery — rhythm, pauses, pitch movement, effort — was learned from real narrators (see below), and they work everywhere a stock voice does: menus, blends, scripts (`@Papa = hm_papa`), voice codes.
+- **Acted emotions**: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired and pleading are performed by the model itself, for every voice — `Papa (rote hue): …`, `[Beti, pyaar se] …`, `(very angry)`.
+- **Hinglish**: Hindi typed in Latin letters ("Papa, aap rona mat") is read as Hindi, English words stay English.
 - **Voice Lab** (**Voices** button): blend two voices, shift pitch and pace, preview, save. Ten character presets (Teen boy, Teen girl, Child, Hero, Villain, Elder, Grandma, narrators…) are built in. Every voice can be copied as a `VT1.…` code and imported elsewhere.
 - **Claude connector**: the Cloudflare Worker gives Claude a private connector to design voices and share scripts that open ready to play on your site (see below). [`server/`](server/README.md) renders the same voices to WAV files on Node.
 - **Read-along**: the sentence being spoken is lit; click any sentence to jump to it.
 - **Save audio**: export the whole piece as a 24 kHz mono WAV.
+
+### Learned voices and acted emotions
+
+A Kokoro voice is a table of style vectors: the first half of each sets the timbre, the second half drives the prosody predictor (how long each sound lasts, the pitch curve, the energy curve). The learned voices keep a blended stock timbre and replace the delivery: recordings of narrators were separated from their music, transcribed, force-aligned word by word, and their real word timings were forced into Kokoro so its predicted pitch and energy could be fitted frame by frame to the performance (128 numbers per voice, under a prior built from all 54 stock voices). On lines held out of the fit, the learned deliveries follow real pitch movement and energy more closely than the best stock voice. Each voice also carries the phrasing measured in its recordings — the poetry narrators (Shayar, Dev) pause about 0.8 s at every comma and line break, the explainer (Josh) barely pauses at all.
+
+Emotions are learned directions in the same delivery half, shared by every voice, fitted to the acoustic profile of acted emotions (pitch level and range, tempo, pause length, vocal effort) relative to each voice's own neutral reading. Because the model performs them, a sad or excited line keeps natural timing and formants instead of being pitch-shifted afterwards. Nothing is uploaded and no new model is downloaded: learned voices and moods are built on the device from the stock tables.
+
+[`tools/voicefit`](tools/voicefit/README.md) has the whole pipeline, including singing (Kokoro's decoder driven by a melody pitch curve and note lengths).
+
+### Studio voices: natural acting (PC)
+
+The studio engine makes every English and Hindi VolTune voice sound like a person acting the line rather than a model reading it: natural rhythm, breaths, pauses and much better Hindi pronunciation. It runs [Chatterbox Multilingual](https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX) (Resemble AI, MIT licence) through ONNX Runtime. VolTune still decides who is speaking: for each voice and mood it renders a short reference line with Kokoro (`src/engine/studio_refs.ts`), and Chatterbox takes the timbre and the acting from that clip. No real person's voice is involved.
+
+- CLI: `voltune render scene.txt -o scene.wav --studio` (or `VOLTUNE_ENGINE=studio`); connector: `engine: "studio"` on `perform_script` and `speak`. VideoStudio 2 desktop uses it for every line once it is installed (`voice.studio {install:true}`).
+- First use downloads about 1.5 GB (pinned revision) and makes a small speaker file per voice and mood (`~/.voltune/studio/speakers`). It needs a PC: about 2 GB of memory, and a few seconds per line on 8 cores.
+- Moods set how strongly a line is acted (exaggeration) and its pace (guidance); plain directions such as `is dialogue ko emotional hoke bolna hai "…"` work here too.
+- Chatterbox's own alignment checks are kept (`src/engine/studio.ts`): attention from three of its heads follows the text, so a line stops when its words are done and babble after them is cut. The heads' projections are exposed by a small edit to the language-model graph made on first use.
+- Phones and the website keep the standard engine.
 
 ### Why it sounds less robotic
 
@@ -100,7 +121,7 @@ On Android, **Save audio** opens the share sheet instead of downloading, because
 
 - **Up to 250,000 characters** (several hours) per piece. Finished clips are stored on the device (IndexedDB) rather than in memory, and only the next ~25 seconds are decoded for playback.
 - **Resumable.** If the screen locks, the app closes or you press Stop, pressing Speak again with the same text and settings continues where it left off; a finished piece replays instantly.
-- **Hindi.** Four Hindi voices (Alpha, Beta, Omega, Psi). Devanagari text is converted to speech sounds by a built-in rule-based converter (schwa deletion, nasalisation, conjuncts, Hindi number words, danda sentence breaks) because the bundled phonemizer only knows English. Mixed Hindi/English lines work; a voice is chosen automatically to match the script. Kokoro rates its Hindi voices below its best English ones, so expect good but not flawless Hindi.
+- **Hindi and Indian English.** Four Hindi voices (Alpha, Beta, Omega, Psi) and two Indian character presets (Indian woman, Indian man). Devanagari text is converted to speech sounds by a built-in rule-based converter (anusvara as a homorganic nasal, schwa deletion, nasalised long vowels such as हूँ, conjuncts, Hindi number words, danda sentence breaks) because the bundled phonemizer only knows English. An Indian voice keeps its own timbre for English lines too, which are spoken with Indian English pronunciation (dental th, tapped r, pure vowels for ei and ou, syllable-timed rhythm). A Devanagari line switches to a Hindi voice automatically. Kokoro rates its Hindi voices below its best English ones, so expect good but not flawless Hindi.
 - **Rhythm** (Brisk / Natural / Relaxed) scales the pauses between phrases, with small repeatable variation so long passages do not sound metronomic. Dialogue adds a beat when the speaker changes.
 - **Numbers, dates, money, times and acronyms** are spoken as words ("$5.50", "March 5th", "3:30 pm", "NASA").
 - **Speed.** The first phrase is kept short so audio starts sooner. The page is cross-origin isolated (COOP/COEP headers in `public/_headers`) so the browser engine can use several threads. The Android app runs the full-precision model in native ONNX Runtime, falling back to the browser engine if that fails.
@@ -138,8 +159,10 @@ The download happens once and is cached by the browser. The interface shows prog
 
 ## Limitations
 
-- English voices only (US and UK). Other Kokoro languages need extra phonemizer support that is not included here.
-- No voice cloning, and no control over emotion beyond what punctuation and voice choice give you.
+- English (US, UK, Indian) and Hindi/Hinglish only. Other Kokoro languages need extra phonemizer support that is not included here.
+- The studio engine is for PCs (≈1.5 GB download, ≈2 GB memory) and is slower than the standard one; very short exclamations are its weakest lines.
+- No voice cloning: learned voices take a delivery from recordings but their timbre is a blend of Kokoro's own voices.
+- Kokoro's pitch breaks above about 360 Hz, so very high or shouted lines and soprano singing are out of reach.
 - Generation speed depends on the device. WebAssembly on a phone can be slower than real time for long text; playback pauses and resumes as sentences arrive.
 - The first run needs a network connection to download the model.
 - `npm audit` reports advisories on `sharp`, a dependency of `@huggingface/transformers` used only for image processing in Node. It is not part of the browser bundle.

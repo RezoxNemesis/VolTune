@@ -1,9 +1,12 @@
 import { autoAssignVoices, parseScript, segmentText, type Segment } from "./dialogue";
 import { splitLong, toChunks } from "./text";
-import { devanagariShare } from "./hindi";
-import { englishVoiceFor, hindiVoiceFor, isHindiVoice } from "./voices";
+import { devanagariShare, HINDI_REACTIONS } from "./hindi";
+import { hinglishShare } from "./hinglish";
+import { phrasePause } from "./learned";
+import { hindiVoiceFor, isHindiVoice } from "./voices";
 import { NEUTRAL } from "./delivery";
-import { PRESETS, resolveVoice, type CustomVoice } from "./voicebank";
+import { rewriteInstructions } from "./instruct";
+import { mixLang, parseMix, PRESETS, resolveVoice, type CustomVoice } from "./voicebank";
 
 export interface PlanItem {
   text: string;
@@ -20,6 +23,11 @@ export interface PlanItem {
   edge?: number;
   /** Delivery marks that shaped this item, e.g. ["whisper"]. */
   tags?: string[];
+  /** Acted emotion (learned.ts) and its strength. */
+  mood?: string;
+  moodAmount?: number;
+  /** "india": a non-Hindi voice that speaks English with Indian English pronunciation. */
+  accent?: "india";
   speaker?: string;
   /** Which speaker turn (or 0 for plain narration) the item belongs to. */
   turn: number;
@@ -59,14 +67,19 @@ export function quickStart(items: PlanItem[], pauseScale: number, max = FIRST_MA
   return [...head, ...items.slice(1)];
 }
 
-/** Pick a voice that can actually read the text: Hindi voices for Devanagari, English voices for Latin script. */
+/**
+ * Pick a voice that can read the text. Devanagari needs a Hindi voice. A Hindi voice keeps its own
+ * timbre for English lines too (spoken with Indian English pronunciation), so an Indian voice never
+ * switches to a US voice mid-script.
+ */
 export function voiceForText(voice: string, text: string): string {
   const share = devanagariShare(text);
   const isMix = voice.includes("+") || voice.includes("*");
   const hindi = isMix ? voice.startsWith("h") : isHindiVoice(voice);
   const male = isMix ? voice[1] === "m" : undefined;
-  if (share >= 0.3 && !hindi) return isMix ? (male ? "hm_omega" : "hf_alpha") : hindiVoiceFor(voice);
-  if (share === 0 && hindi && /[A-Za-z]{2}/.test(text)) return isMix ? (male ? "am_michael" : "af_heart") : englishVoiceFor(voice);
+  // Hindi typed in Latin letters ("kal milte hain") is Hindi too.
+  const roman = share < 0.3 ? hinglishShare(text) : 0;
+  if ((share >= 0.3 || roman >= 0.34) && !hindi) return isMix ? (male ? "hm_omega" : "hf_alpha") : hindiVoiceFor(voice);
   return voice;
 }
 
@@ -97,19 +110,27 @@ function itemsFor(
       continue;
     }
     const d = seg.delivery ?? NEUTRAL;
-    const chunks = seg.sound ? [{ text: seg.text, pauseMs: 160 }] : toChunks(seg.text);
+    const chunks = seg.sound ? [{ text: seg.text, pauseMs: 160 }] : toChunks(seg.text, undefined, { commas: v.phrasing?.breakCommas, lines: v.phrasing?.lines });
     chunks.forEach((c, i) => {
       const last = i === chunks.length - 1;
+      const voice = voiceForText(v.mix, c.text);
+      // A Hindi voice says reaction sounds in Hindi ("Haha!" → "हा हा!"); other voices keep the English.
+      const hindiVoice = mixLang(parseMix(voice)) === "h";
+      const text = seg.sound && hindiVoice ? HINDI_REACTIONS[c.text] ?? c.text : c.text;
       out.push({
-        text: c.text,
-        pauseMs: Math.round(c.pauseMs * d.pause) + (last ? seg.pauseAfterMs ?? 0 : 0),
-        voice: voiceForText(v.mix, c.text),
+        text,
+        // A learned voice pauses the way it was recorded to (learned.ts); stock voices keep VolTune's defaults.
+        pauseMs: Math.round((v.phrasing && !seg.sound ? phrasePause(c.text, c.pauseMs, v.phrasing) : c.pauseMs) * d.pause) + (last ? seg.pauseAfterMs ?? 0 : 0),
+        voice: seg.sound && hindiVoice ? voiceForText(voice, text) : voice,
         speed: r2(Math.min(1.6, Math.max(0.55, o.speed * v.speed * (extra.speed ?? 1) * d.speed))),
         pitch: r2(v.pitch + (extra.pitch ?? 0) + d.pitch),
         gain: r2(d.gain),
         soft: r2(d.soft),
         edge: r2(d.edge),
         tags: d.tags.length ? [...d.tags] : undefined,
+        mood: d.mood,
+        moodAmount: d.mood ? r2(d.moodAmount ?? 1) : undefined,
+        accent: v.accent === "India" && mixLang(parseMix(voice)) !== "h" ? "india" : undefined,
         speaker: meta.speaker,
         turn: meta.turn,
       });
@@ -126,11 +147,18 @@ function compact(it: PlanItem): PlanItem {
   if (!o.soft) delete o.soft;
   if (!o.edge) delete o.edge;
   if (!o.tags) delete o.tags;
+  if (!o.accent) delete o.accent;
+  if (!o.mood) {
+    delete o.mood;
+    delete o.moodAmount;
+  }
   if (o.speaker === undefined) delete o.speaker;
   return o;
 }
 
 export function buildPlan(input: string, o: PlanOptions): { items: PlanItem[]; cast: Record<string, string> } {
+  // "is dialogue ko emotional hoke bolna hai: …" → "(emotional) …" (instruct.ts).
+  input = rewriteInstructions(input);
   let items: PlanItem[] = [];
   let cast = o.cast;
   const customs = o.customs ?? [];

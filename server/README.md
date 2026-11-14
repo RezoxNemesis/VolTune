@@ -54,6 +54,7 @@ Settings → Connectors → **Add custom connector** → paste the URL. Then ask
 | `VOLTUNE_MODEL` | downloaded | Path to `kokoro-v1.0.onnx`. |
 | `VOLTUNE_PRECISION` | `fp32` | `int8` downloads a smaller, slightly rougher model. |
 | `VOLTUNE_THREADS` | auto | ONNX Runtime threads. |
+| `VOLTUNE_ENGINE` | `standard` | `studio` acts every line with the studio engine (Chatterbox, ≈1.5 GB download on first use). |
 | `PUBLIC_URL` | from request | Base URL used in audio links. |
 | `VOLTUNE_KEEP` | 200 | Renders kept on disk. |
 

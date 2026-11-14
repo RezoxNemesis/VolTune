@@ -208,6 +208,7 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
     {
       instructions:
         "VolTune turns scripts into acted, multi-voice speech. Call script_help first for the script syntax (speakers, moods like (whispering), sounds like (laughs), [pause 2s], @Name = voice). " +
+        "Learned Hindi/Hinglish voices (delivery learned from real narrators; use like stock ids): hm_shayar Shayar (deep poetry narrator, long pauses), hm_kahani Kahani (warm storyteller), hf_noor Noor (female storyteller), hm_josh Josh (energetic creator), hm_chhotu Chhotu (street-smart boy), hf_gudiya Gudiya (little girl), hm_dev Dev (mythic god voice), hm_papa Papa (gentle father), hm_sur Sur and hf_sargam Sargam (singers, also speak). Emotions the model itself acts, for every voice: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired, pleading (Hindi marks too: (udaas) (rote hue) (gusse mein) (pyaar se)). Hinglish in Latin letters is read as Hindi. " +
         "Design character voices with create_voice; they are saved to the person's VolTune website. Use check_script to see how a script will be performed, then share_script to get a link where the person hears it and downloads the WAV. " +
         "For animation: get_scene returns a script with its exact voice recipes; in an environment with the VolTune repo run `node server/dist/cli.js scene <bundle.json> -o out/` to get scene.wav, per-line WAVs, a timeline, lip-sync mouth tracks and an audio-quality report (pitch, pace, loudness, transcript check), then `avcheck` on the finished video.",
     },
@@ -234,7 +235,7 @@ function studioServer(stub: DurableObjectStub<Studio>, origin: string): McpServe
     {
       description:
         `Design a character voice by blending stock voices and shifting pitch and pace, and save it to the VolTune site (it appears in the website's voice menus). Saving an existing name replaces it. Stock ids: ${BASE_VOICES.join(", ")}. ` +
-        "Tips: blend voices of the same accent; +2…+4 semitones reads younger, −1…−3 older or menacing; speed 0.9 measured, 1.1 lively.",
+        "Learned Hindi/Hinglish voices (delivery learned from real narrators; use like stock ids): hm_shayar Shayar (deep poetry narrator, long pauses), hm_kahani Kahani (warm storyteller), hf_noor Noor (female storyteller), hm_josh Josh (energetic creator), hm_chhotu Chhotu (street-smart boy), hf_gudiya Gudiya (little girl), hm_dev Dev (mythic god voice), hm_papa Papa (gentle father), hm_sur Sur and hf_sargam Sargam (singers, also speak). Emotions the model itself acts, for every voice: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired, pleading (Hindi marks too: (udaas) (rote hue) (gusse mein) (pyaar se)). Hinglish in Latin letters is read as Hindi. Tips: blend voices of the same accent; +2…+4 semitones reads younger, −1…−3 older or menacing; speed 0.9 measured, 1.1 lively.",
       inputSchema: {
         name: z.string().min(1).max(40).describe("Display name; scripts use it as @Character = <name>"),
         mix: z.string().min(2).describe('Blend such as "am_puck*0.6+am_michael*0.4", or one stock id'),

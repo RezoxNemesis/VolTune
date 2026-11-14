@@ -187,3 +187,22 @@ describe("voice shaping", () => {
     expect(env[25]).toBeGreaterThan(0.5);
   });
 });
+
+describe("Hindi nasal vowels", () => {
+  it("keeps precomposed nasal vowels as vowel + tilde", async () => {
+    const { tokenize } = await import("../src/engine/phonemes");
+    expect(tokenize("hũː")).toEqual(tokenize("hũː"));
+    expect(tokenize("nəhĩː").length).toBe(tokenize("nəhĩː").length);
+    expect(tokenize("kjõː")).toContain(tokenize("̃")[1]);
+  });
+
+  it("keys Hindi plans by pronunciation version, English plans unchanged", async () => {
+    const { hashPlan } = await import("../src/engine/store");
+    const en = await hashPlan([{ text: "Hello", voice: "af_heart", speed: 1, pauseMs: 300 }]);
+    expect(en).toBe(await hashPlan([{ text: "Hello", voice: "af_heart", speed: 1, pauseMs: 300 }]));
+    const hi = await hashPlan([{ text: "हूँ", voice: "hf_alpha", speed: 1, pauseMs: 300 }]);
+    const hiMix = await hashPlan([{ text: "हूँ", voice: "af_heart*0.5+hf_alpha*0.5", speed: 1, pauseMs: 300 }]);
+    expect(hi).not.toBe(await hashPlan([{ text: "हूँ", voice: "xf_alpha", speed: 1, pauseMs: 300 }]));
+    expect(hiMix).toBeTruthy();
+  });
+});

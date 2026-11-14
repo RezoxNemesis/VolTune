@@ -100,6 +100,7 @@ function buildServer(base: string): McpServer {
     {
       instructions:
         "VolTune turns scripts into acted, multi-voice audio. Call script_help once to learn the script syntax (speakers, moods like (whispering), sounds like (laughs), [pause 2s], @Name = voice lines). " +
+        "Learned Hindi/Hinglish voices (delivery learned from real narrators; use like stock ids): hm_shayar Shayar (deep poetry narrator, long pauses), hm_kahani Kahani (warm storyteller), hf_noor Noor (female storyteller), hm_josh Josh (energetic creator), hm_chhotu Chhotu (street-smart boy), hf_gudiya Gudiya (little girl), hm_dev Dev (mythic god voice), hm_papa Papa (gentle father), hm_sur Sur and hf_sargam Sargam (singers, also speak). Emotions the model itself acts, for every voice: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired, pleading (Hindi marks too: (udaas) (rote hue) (gusse mein) (pyaar se)). Hinglish in Latin letters is read as Hindi. " +
         "Design character voices with create_voice (blend stock voices, shift pitch), then perform_script to get a WAV URL plus a per-line timeline and lip-sync tracks for animation. " +
         "Every custom voice has a VT1 code the person can paste into the VolTune app (Voice Lab → Import) to get the identical voice there.",
     },
@@ -128,7 +129,7 @@ function buildServer(base: string): McpServer {
       title: "Create a voice",
       description:
         `Design and save a character voice by blending stock voices and shifting pitch/pace. Saving under an existing name replaces it. Stock voices: ${BASE_VOICES.join(", ")}. ` +
-        "Tips: blend two voices of the same accent; +2…+4 semitones reads younger, −1…−3 older or menacing; speed 0.9 is measured, 1.1 lively.",
+        "Learned Hindi/Hinglish voices (delivery learned from real narrators; use like stock ids): hm_shayar Shayar (deep poetry narrator, long pauses), hm_kahani Kahani (warm storyteller), hf_noor Noor (female storyteller), hm_josh Josh (energetic creator), hm_chhotu Chhotu (street-smart boy), hf_gudiya Gudiya (little girl), hm_dev Dev (mythic god voice), hm_papa Papa (gentle father), hm_sur Sur and hf_sargam Sargam (singers, also speak). Emotions the model itself acts, for every voice: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired, pleading (Hindi marks too: (udaas) (rote hue) (gusse mein) (pyaar se)). Hinglish in Latin letters is read as Hindi. Tips: blend two voices of the same accent; +2…+4 semitones reads younger, −1…−3 older or menacing; speed 0.9 is measured, 1.1 lively.",
       inputSchema: {
         name: z.string().min(1).max(40).describe("Display name, also usable in scripts: @Hero = <name>"),
         mix: z.string().describe('Blend, e.g. "am_puck*0.6+am_michael*0.4", or one stock id'),
@@ -191,6 +192,7 @@ function buildServer(base: string): McpServer {
     rhythm: z.number().min(0.5).max(2).optional().describe("Pause length multiplier, default 1"),
     lipsync_fps: z.number().int().min(10).max(60).optional().describe("Frame rate for the lip-sync tracks, default 30"),
     include_audio: z.boolean().optional().describe("Also return the WAV inline as an audio block (large). Default false: use audio_url."),
+    engine: z.enum(["studio", "standard"]).optional().describe("studio: natural acted delivery (Chatterbox, slower, ~1.5 GB download on first use; English and Hindi voices). standard: Kokoro, fast. Default from VOLTUNE_ENGINE, else standard."),
   };
 
   async function respond(r: Rendered, a: { lipsync_fps?: number; include_audio?: boolean }) {
@@ -221,7 +223,7 @@ function buildServer(base: string): McpServer {
     },
     async (a) => {
       try {
-        const r = await serial(() => engine.render(a.script, { mode: "dialogue", cast: a.cast ?? {}, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms() }));
+        const r = await serial(() => engine.render(a.script, { mode: "dialogue", cast: a.cast ?? {}, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms(), engine: a.engine }));
         return await respond(r, a);
       } catch (e) {
         return fail(e);
@@ -238,7 +240,7 @@ function buildServer(base: string): McpServer {
     },
     async (a) => {
       try {
-        const r = await serial(() => engine.render(a.text, { mode: "speak", voice: a.voice, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms() }));
+        const r = await serial(() => engine.render(a.text, { mode: "speak", voice: a.voice, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms(), engine: a.engine }));
         return await respond(r, a);
       } catch (e) {
         return fail(e);
