@@ -46,7 +46,7 @@ export async function synthesize(job: Job, deps: SynthDeps): Promise<Float32Arra
   const phonemes = await phonemesFor(job.text, job.voice, deps.phonemize, job.accent);
   let ids = tokenize(phonemes);
   if (ids.length > MAX_TOKENS + 2) ids = [...ids.slice(0, MAX_TOKENS + 1), 0];
-  const table = await deps.tables.table(job.voice);
+  const table = await deps.tables.table(job.voice, job.mood, job.moodAmount ?? 1);
   const raw = await deps.run(ids, styleRow(table, ids.length), job.speed);
   return shape(polish(raw, SAMPLE_RATE), job);
 }

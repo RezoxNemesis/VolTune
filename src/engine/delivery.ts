@@ -6,7 +6,13 @@
  * (gasps) are spoken as short sounds instead of being dropped.
  */
 
+import type { Mood } from "./learned";
+
 export interface Delivery {
+  /** An acted emotion performed by the model itself (learned.ts). */
+  mood?: Mood;
+  /** How strongly the mood is acted, 0…2 (1 = full). */
+  moodAmount?: number;
   /** Pace multiplier. */
   speed: number;
   /** Pitch shift in semitones. */
@@ -30,24 +36,28 @@ export const NEUTRAL: Delivery = Object.freeze({ speed: 1, pitch: 0, pause: 1, g
 
 type Spec = Partial<Omit<Delivery, "tags">>;
 
+// Emotions are acted by the model (learned.ts); `speed` tops up the tempo change the learned direction only half reaches.
 const STYLES: Array<[string[], Spec]> = [
-  [["whisper", "whispering", "whispers", "whispered", "hushed", "murmur", "murmuring", "murmurs", "under breath", "under her breath", "under his breath", "barely audible"], { speed: 0.92, pitch: -0.3, gain: 0.55, soft: 0.85, pause: 1.15 }],
-  [["softly", "quietly", "soft", "quiet", "gently", "gentle", "tender", "tenderly"], { speed: 0.94, pitch: -0.2, gain: 0.75, soft: 0.35, pause: 1.15 }],
-  [["shout", "shouting", "shouts", "yell", "yelling", "yells", "scream", "screaming", "screams", "loud", "loudly", "bellowing", "calling out", "calls out"], { speed: 1.06, pitch: 1.3, gain: 1.45, edge: 0.55, end: "!" }],
-  [["angry", "angrily", "furious", "furiously", "annoyed", "irritated", "mad", "frustrated", "snapping", "snaps", "fuming"], { speed: 1.04, pitch: 0.4, gain: 1.25, edge: 0.35, end: "!" }],
-  [["excited", "excitedly", "happy", "happily", "cheerful", "cheerfully", "joyful", "thrilled", "eager", "eagerly", "delighted", "enthusiastic", "beaming", "grinning", "elated"], { speed: 1.07, pitch: 1, gain: 1.1, end: "!" }],
-  [["laughing", "through laughter", "amused", "giggling", "chuckling"], { speed: 1.05, pitch: 0.8, gain: 1.05 }],
-  [["sad", "sadly", "crying", "tearful", "tearfully", "upset", "hurt", "heartbroken", "grieving", "sobbing", "choked up", "melancholy", "sorrowful"], { speed: 0.86, pitch: -1, gain: 0.85, pause: 1.35, end: "." }],
-  [["nervous", "nervously", "anxious", "anxiously", "hesitant", "hesitantly", "unsure", "stammering", "stuttering", "shy", "shyly", "awkward", "awkwardly", "flustered", "embarrassed"], { speed: 0.95, pitch: 0.4, pause: 1.25, stammer: true }],
-  [["scared", "afraid", "terrified", "frightened", "panicked", "panicking", "fearful", "alarmed"], { speed: 1.08, pitch: 1, gain: 0.95, soft: 0.2, end: "!" }],
-  [["calm", "calmly", "warm", "warmly", "kind", "kindly", "reassuring", "soothing", "relaxed"], { speed: 0.94, pitch: -0.2, pause: 1.15 }],
-  [["serious", "seriously", "firm", "firmly", "stern", "sternly", "cold", "coldly", "flat", "flatly", "grim"], { speed: 0.95, pitch: -0.6, end: "." }],
-  [["sarcastic", "sarcastically", "dry", "dryly", "deadpan", "mocking", "smug"], { speed: 0.93, pitch: -0.4, end: "." }],
-  [["surprised", "shocked", "amazed", "astonished", "stunned", "startled", "in disbelief"], { speed: 1.04, pitch: 1.4, end: "!" }],
-  [["tired", "sleepy", "exhausted", "bored", "drowsy", "weary", "yawning"], { speed: 0.84, pitch: -0.8, gain: 0.8, soft: 0.25, pause: 1.4 }],
-  [["confident", "confidently", "proud", "proudly", "bold", "boldly", "determined"], { speed: 1, pitch: -0.2, gain: 1.1 }],
-  [["pleading", "begging", "desperate", "desperately"], { speed: 0.92, pitch: 0.7, end: "..." }],
-  [["mysterious", "mysteriously", "ominous", "ominously", "dramatic", "dramatically", "menacing", "menacingly", "dark"], { speed: 0.9, pitch: -0.8, pause: 1.3 }],
+  [["whisper", "whispering", "whispers", "whispered", "hushed", "murmur", "murmuring", "murmurs", "under breath", "under her breath", "under his breath", "barely audible", "phusphusa kar", "phusphusate hue", "फुसफुसा कर", "फुसफुसाते हुए"], { speed: 0.92, pitch: -0.3, gain: 0.55, soft: 0.85, pause: 1.15 }],
+  [["softly", "quietly", "soft", "quiet", "gently", "gentle", "dheere se", "dhire se", "धीरे से"], { speed: 0.94, pitch: -0.2, gain: 0.75, soft: 0.35, pause: 1.15 }],
+  [["tender", "tenderly", "lovingly", "loving", "affectionately", "fondly", "sweetly", "pyaar se", "pyar se", "mamta se", "प्यार से", "ममता से"], { mood: "loving", speed: 0.95, gain: 0.85, soft: 0.2, pause: 1.15 }],
+  [["shout", "shouting", "shouts", "yell", "yelling", "yells", "scream", "screaming", "screams", "loud", "loudly", "bellowing", "calling out", "calls out", "chilla kar", "chillate hue", "cheekh kar", "चिल्ला कर", "चिल्लाते हुए", "चीख कर"], { mood: "excited", moodAmount: 0.7, pitch: 0.5, gain: 1.45, edge: 0.55, end: "!" }],
+  [["angry", "angrily", "furious", "furiously", "annoyed", "irritated", "mad", "frustrated", "snapping", "snaps", "fuming", "gusse mein", "gusse me", "gusse se", "gussa", "naraz", "naraaz", "गुस्से में", "गुस्सा", "नाराज़", "नाराज"], { mood: "angry", speed: 1.05, gain: 1.2, edge: 0.3, end: "!" }],
+  [["excited", "excitedly", "thrilled", "eager", "eagerly", "enthusiastic", "elated", "josh mein", "josh se", "utsah se", "जोश में", "उत्साह से"], { mood: "excited", speed: 1.07, gain: 1.1, end: "!" }],
+  [["happy", "happily", "cheerful", "cheerfully", "joyful", "delighted", "beaming", "grinning", "smiling", "khush", "khushi se", "khushi khushi", "ख़ुश", "खुश", "खुशी से", "ख़ुशी से"], { mood: "happy", speed: 1.05, gain: 1.05 }],
+  [["laughing", "through laughter", "amused", "giggling", "chuckling", "hanste hue", "हँसते हुए", "हंसते हुए"], { mood: "happy", moodAmount: 0.8, pitch: 0.3, gain: 1.05 }],
+  [["sad", "sadly", "upset", "hurt", "heartbroken", "grieving", "melancholy", "sorrowful", "udaas", "udas", "udaasi se", "dukhi", "dukh se", "उदास", "दुखी", "दुख से"], { mood: "sad", speed: 0.92, gain: 0.85, pause: 1.35, end: "." }],
+  [["crying", "tearful", "tearfully", "sobbing", "choked up", "weeping", "in tears", "rote hue", "rote huye", "rote rote", "ro kar", "rokar", "रोते हुए", "रोते-रोते", "रो कर"], { mood: "crying", speed: 0.89, gain: 0.8, soft: 0.25, pause: 1.45, end: "." }],
+  [["nervous", "nervously", "anxious", "anxiously", "hesitant", "hesitantly", "unsure", "stammering", "stuttering", "shy", "shyly", "awkward", "awkwardly", "flustered", "embarrassed", "sharmate hue", "शर्माते हुए", "ghabra kar", "घबरा कर"], { mood: "scared", moodAmount: 0.4, pause: 1.25, stammer: true }],
+  [["scared", "afraid", "terrified", "frightened", "panicked", "panicking", "fearful", "alarmed", "darr ke", "dar ke", "darte hue", "dara hua", "dari hui", "डर के", "डरते हुए", "डरा हुआ", "डरी हुई"], { mood: "scared", speed: 1.1, gain: 0.95, soft: 0.2, end: "!" }],
+  [["calm", "calmly", "warm", "warmly", "kind", "kindly", "reassuring", "soothing", "relaxed", "shaanti se", "shanti se", "शांति से"], { mood: "loving", moodAmount: 0.5, pause: 1.15 }],
+  [["serious", "seriously", "firm", "firmly", "stern", "sternly", "cold", "coldly", "flat", "flatly", "grim", "gambhir", "gambheer", "sakhti se", "गंभीर", "सख़्ती से"], { mood: "serious", speed: 0.97, end: "." }],
+  [["sarcastic", "sarcastically", "dry", "dryly", "deadpan", "mocking", "smug"], { mood: "serious", moodAmount: 0.5, speed: 0.95, end: "." }],
+  [["surprised", "shocked", "amazed", "astonished", "stunned", "startled", "in disbelief", "hairani se", "hairaan", "hairan", "hairaani se", "chaunk kar", "chaunk ke", "chonk kar", "हैरानी से", "हैरान", "चौंक कर"], { mood: "surprised", end: "!" }],
+  [["tired", "sleepy", "exhausted", "bored", "drowsy", "weary", "yawning", "thaka hua", "thaki hui", "thake hue", "थका हुआ", "थकी हुई"], { mood: "tired", speed: 0.91, gain: 0.8, soft: 0.25, pause: 1.4 }],
+  [["confident", "confidently", "proud", "proudly", "bold", "boldly", "determined"], { mood: "serious", moodAmount: 0.3, gain: 1.1 }],
+  [["pleading", "begging", "desperate", "desperately", "gidgida kar", "minnat karte hue", "गिड़गिड़ा कर", "विनती करते हुए"], { mood: "pleading", speed: 0.94, end: "..." }],
+  [["mysterious", "mysteriously", "ominous", "ominously", "dramatic", "dramatically", "menacing", "menacingly", "dark"], { mood: "serious", moodAmount: 0.6, speed: 0.92, pitch: -0.5, pause: 1.3 }],
   [["curious", "curiously", "wondering", "puzzled", "confused"], { speed: 0.97, pitch: 0.5, end: "?" }],
   [["slow", "slowly", "deliberately", "measured"], { speed: 0.85, pause: 1.2 }],
   [["fast", "quickly", "rushed", "hurried", "hurriedly", "rapidly", "breathless", "breathlessly"], { speed: 1.15, pause: 0.8 }],
@@ -58,7 +68,7 @@ const SOUNDS: Array<[string[], string, Spec]> = [
   [["laughs", "laugh", "laughter", "bursts out laughing", "laughs out loud"], "Haha!", { speed: 1.05, pitch: 0.8 }],
   [["chuckles", "chuckle", "snickers", "smirks"], "Heh.", { speed: 0.95 }],
   [["giggles", "giggle"], "Hehe!", { speed: 1.08, pitch: 1 }],
-  [["sighs", "sigh", "exhales"], "Hhh...", { speed: 0.85, gain: 0.7, soft: 0.6 }],
+  [["sighs", "sigh", "exhales"], "Hhh...", { mood: "tired", moodAmount: 0.6, speed: 0.85, gain: 0.7, soft: 0.6 }],
   [["gasps", "gasp"], "Oh!", { speed: 1.05, pitch: 1.2 }],
   [["groans", "groan"], "Ugh.", { speed: 0.9, pitch: -0.6 }],
   [["clears throat", "clears her throat", "clears his throat", "ahem"], "Ahem.", { speed: 0.95 }],
@@ -86,7 +96,9 @@ export type Direction =
 const clean = (s: string) => s.toLowerCase().replace(/[“”"'’!?]|\.(?!\d)|(?<!\d)\./g, "").replace(/\s+/g, " ").trim();
 
 function asDelivery(spec: Spec, name: string): Delivery {
-  return { ...NEUTRAL, ...spec, tags: [name] };
+  const d: Delivery = { ...NEUTRAL, ...spec, tags: [name] };
+  if (d.mood && d.moodAmount === undefined) d.moodAmount = 1;
+  return d;
 }
 
 /** Parse the inside of one direction: "(whispering)", "[pause 2s]", "*laughs*", "(to Jon, angrily)". */
@@ -136,6 +148,7 @@ export function soften(d: Delivery, k: number): Delivery {
     gain: lerp(1, d.gain),
     soft: Math.min(1, lerp(0, d.soft)),
     edge: Math.min(1, lerp(0, d.edge)),
+    ...(d.mood ? { moodAmount: Math.min(2, Math.max(0, (d.moodAmount ?? 1) * k)) } : {}),
   };
 }
 
@@ -151,6 +164,11 @@ export function combine(list: readonly Delivery[]): Delivery {
     out.edge = Math.max(out.edge, d.edge);
     if (d.end) out.end = out.end === "!" && d.end === "?" ? "?!" : d.end;
     if (d.stammer) out.stammer = true;
+    // One acted mood per line: the strongest mark wins ("(sad, whispering)" acts sad and whispers).
+    if (d.mood && (d.moodAmount ?? 1) >= (out.moodAmount ?? 0)) {
+      out.mood = d.mood;
+      out.moodAmount = d.moodAmount ?? 1;
+    }
     out.tags.push(...d.tags);
   }
   out.speed = Math.min(1.5, Math.max(0.6, out.speed));

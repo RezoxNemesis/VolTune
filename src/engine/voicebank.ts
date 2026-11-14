@@ -8,6 +8,7 @@
  */
 
 import { VOICES, getVoice } from "./voices";
+import { LEARNED, applyMood, buildLearnedTable, isMood, learnedVoice, phrasingFor, type Mood, type Phrasing } from "./learned";
 
 /** Every stock voice shipped with Kokoro-82M v1.0 that VolTune can read (English and Hindi). */
 export const BASE_VOICES: readonly string[] = [
@@ -15,6 +16,10 @@ export const BASE_VOICES: readonly string[] = [
   "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
   "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
   "hf_alpha", "hf_beta", "hm_omega", "hm_psi",
+  // Read by learned voices (their timbre or delivery comes partly from these); usable in blends too.
+  "em_alex", "em_santa", "pm_alex", "ef_dora", "pf_dora", "jm_kumo",
+  // Learned voices (learned.ts): built from the stock tables above plus a learned delivery.
+  ...LEARNED.map((v) => v.id),
 ];
 const BASE = new Set(BASE_VOICES);
 
@@ -133,6 +138,8 @@ export interface ResolvedVoice {
   pitch: number;
   speed: number;
   gender: "Female" | "Male";
+  /** How a learned voice phrases text (pause lengths, breaks); undefined for stock voices. */
+  phrasing?: Phrasing;
   /** "India" for an Indian-accented voice (its English is spoken with Indian pronunciation). */
   accent?: "US" | "UK" | "India";
 }
@@ -142,7 +149,7 @@ export function resolveVoice(ref: string, customs: readonly CustomVoice[] = []):
   const custom = findVoice(ref, customs);
   if (custom) {
     const mix = custom.recipe.mix;
-    return { mix: mixToString(mix), lang: mixLang(mix), pitch: custom.recipe.pitch, speed: custom.recipe.speed, gender: custom.gender, accent: custom.accent };
+    return { mix: mixToString(mix), lang: mixLang(mix), pitch: custom.recipe.pitch, speed: custom.recipe.speed, gender: custom.gender, accent: custom.accent, phrasing: phrasingFor(mix) };
   }
   let mix: Mix;
   try {
@@ -150,8 +157,9 @@ export function resolveVoice(ref: string, customs: readonly CustomVoice[] = []):
   } catch {
     mix = [[VOICES[0]!.id, 1]];
   }
-  const g = mix[0]![0][1] === "m" ? "Male" : "Female";
-  return { mix: mixToString(mix), lang: mixLang(mix), pitch: 0, speed: 1, gender: g };
+  const lead = learnedVoice(mix[0]![0]);
+  const g = lead ? lead.gender : mix[0]![0][1] === "m" ? "Male" : "Female";
+  return { mix: mixToString(mix), lang: mixLang(mix), pitch: 0, speed: 1, gender: g, phrasing: phrasingFor(mix) };
 }
 
 export function isKnownVoiceRef(ref: string, customs: readonly CustomVoice[] = []): boolean {
@@ -189,14 +197,28 @@ export class VoiceTables {
   stock(id: string): Promise<Float32Array> {
     let p = this.base.get(id);
     if (!p) {
-      p = this.loader(id);
+      const learned = learnedVoice(id);
+      // A learned voice is assembled from stock tables (timbre blend + learned delivery).
+      p = learned ? buildLearnedTable(learned, (x) => this.stock(x)) : this.loader(id);
       this.base.set(id, p);
       p.catch(() => this.base.delete(id));
     }
     return p;
   }
 
-  table(mixExpr: string): Promise<Float32Array> {
+  /** The table for a voice reference, optionally acting a mood (learned.ts) at `amount` (0…2, 1 = full). */
+  table(mixExpr: string, mood?: Mood | string, amount = 1): Promise<Float32Array> {
+    if (mood && isMood(mood) && amount > 0) {
+      const key = `${mixExpr}~${mood}@${amount.toFixed(2)}`;
+      let q = this.blends.get(key);
+      if (!q) {
+        q = this.table(mixExpr).then((t) => applyMood(t, mood, amount));
+        this.blends.set(key, q);
+        q.catch(() => this.blends.delete(key));
+        if (this.blends.size > 64) this.blends.delete(this.blends.keys().next().value!);
+      }
+      return q;
+    }
     let p = this.blends.get(mixExpr);
     if (!p) {
       const mix = parseMix(mixExpr);

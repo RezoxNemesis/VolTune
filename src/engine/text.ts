@@ -165,16 +165,41 @@ function mergeShort(sentences: string[], max: number): string[] {
   return out.flatMap((s) => splitLong(s, max));
 }
 
+export interface ChunkOptions {
+  /** Split at every comma, semicolon, colon and dash as well, so each phrase gets its own pause (poetry). */
+  commas?: boolean;
+  /** Treat single line breaks as phrase breaks instead of spaces. */
+  lines?: boolean;
+}
+
+/** Split a sentence after each comma-like break, keeping the punctuation with the phrase before it. */
+export function splitPhrases(sentence: string): string[] {
+  const parts = sentence.split(/(?<=[,;:]|\s[—–-]|…|\.\.\.)\s+/).map((p) => p.trim()).filter(Boolean);
+  // A lone word without letters (a dash) joins the next phrase.
+  const out: string[] = [];
+  for (const p of parts) {
+    if (out.length && !/[\p{L}\p{N}]/u.test(out[out.length - 1]!)) out[out.length - 1] = `${out[out.length - 1]} ${p}`;
+    else out.push(p);
+  }
+  return out;
+}
+
 /** Turn arbitrary text into speakable chunks with pause lengths. */
-export function toChunks(input: string, max = MAX_CHUNK_CHARS): Chunk[] {
+export function toChunks(input: string, max = MAX_CHUNK_CHARS, o: ChunkOptions = {}): Chunk[] {
   const text = normalize(input);
   if (!text) return [];
   const chunks: Chunk[] = [];
   const paragraphs = text.split(/\n{2,}/);
   paragraphs.forEach((para, pi) => {
-    const flat = para.replace(/\n/g, " ").trim();
-    if (!flat) return;
-    const pieces = mergeShort(splitSentences(flat), max).filter((p) => /[\p{L}\p{N}]/u.test(p));
+    const lines = o.lines ? para.split("\n") : [para.replace(/\n/g, " ")];
+    const pieces = lines
+      .flatMap((line) => {
+        const flat = line.trim();
+        if (!flat) return [];
+        const ps = mergeShort(splitSentences(flat), max);
+        return o.commas ? ps.flatMap(splitPhrases) : ps;
+      })
+      .filter((p) => /[\p{L}\p{N}]/u.test(p));
     pieces.forEach((piece, i) => {
       const last = i === pieces.length - 1;
       const paragraphEnd = last && pi < paragraphs.length - 1;

@@ -19,9 +19,10 @@ import { DEFAULT_VOICE } from "../../src/engine/voices";
 
 const require = createRequire(import.meta.url);
 
+/** Where the model can be fetched, in order: GitHub releases, then the Hugging Face copy kokoro-js uses. */
 const MODEL_URLS = {
-  fp32: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
-  int8: "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx",
+  fp32: ["https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx", "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model.onnx"],
+  int8: ["https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx", "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model_quantized.onnx"],
 } as const;
 
 export const dataDir = (): string => process.env.VOLTUNE_DATA ?? path.join(homedir(), ".voltune");
@@ -40,9 +41,29 @@ async function download(url: string, to: string, log: (s: string) => void): Prom
 export async function modelPath(log: (s: string) => void = () => {}): Promise<string> {
   if (process.env.VOLTUNE_MODEL) return process.env.VOLTUNE_MODEL;
   const precision = process.env.VOLTUNE_PRECISION === "int8" ? "int8" : "fp32";
-  const file = path.join(dataDir(), "models", path.basename(MODEL_URLS[precision]));
-  if (!existsSync(file)) await download(MODEL_URLS[precision], file, log);
-  return file;
+  const urls = MODEL_URLS[precision];
+  // Either copy is accepted, whichever is already on disk.
+  for (const u of urls) {
+    const f = path.join(dataDir(), "models", modelFileName(u));
+    if (existsSync(f)) return f;
+  }
+  let last: unknown;
+  for (const u of urls) {
+    const f = path.join(dataDir(), "models", modelFileName(u));
+    try {
+      await download(u, f, log);
+      return f;
+    } catch (e) {
+      last = e;
+      log(`Could not download ${u}; trying the next source.`);
+    }
+  }
+  throw last;
+}
+
+/** File name for a model URL (the Hugging Face copies are all called model*.onnx, so name them by source). */
+function modelFileName(url: string): string {
+  return url.includes("huggingface.co") ? `kokoro-v1.0-hf-${path.basename(url)}` : path.basename(url);
 }
 
 function localVoicesDir(): string | null {
@@ -93,12 +114,14 @@ export class Engine {
 
   private runner: ModelRunner = async (ids, style, speed) => {
     const s = await this.ensure();
+    // The GitHub export names the ids input "tokens", the Hugging Face export "input_ids".
+    const idsName = s.inputNames.includes("tokens") ? "tokens" : "input_ids";
     const out = await s.run({
-      tokens: new ort.Tensor("int64", BigInt64Array.from(ids, (n) => BigInt(n)), [1, ids.length]),
+      [idsName]: new ort.Tensor("int64", BigInt64Array.from(ids, (n) => BigInt(n)), [1, ids.length]),
       style: new ort.Tensor("float32", style, [1, style.length]),
       speed: new ort.Tensor("float32", new Float32Array([speed]), [1]),
     });
-    return new Float32Array((out.audio ?? Object.values(out)[0]!).data as Float32Array);
+    return new Float32Array((out.audio ?? out.waveform ?? Object.values(out)[0]!).data as Float32Array);
   };
 
   /** Render a script (dialogue) or plain text (speak) to one stitched clip plus its timeline. */

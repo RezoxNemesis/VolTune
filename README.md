@@ -13,10 +13,21 @@ VolTune uses the open [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) vo
   - `[pause 2s]`, `(beat)` and `---` scene breaks control timing; `#` lines are comments;
   - `@Maya = Teen girl` or `@Ghost = af_sky*0.6+am_onyx*0.4, pitch -2` picks voices inside the script.
   The **Script tips** link in the Dialogue tab lists everything.
+- **Learned voices** (Hindi and Hinglish): Shayar, Kahani, Noor, Josh, Chhotu, Gudiya, Dev, Papa, Sur and Sargam. Their delivery — rhythm, pauses, pitch movement, effort — was learned from real narrators (see below), and they work everywhere a stock voice does: menus, blends, scripts (`@Papa = hm_papa`), voice codes.
+- **Acted emotions**: happy, excited, sad, crying, angry, scared, loving, surprised, serious, tired and pleading are performed by the model itself, for every voice — `Papa (rote hue): …`, `[Beti, pyaar se] …`, `(very angry)`.
+- **Hinglish**: Hindi typed in Latin letters ("Papa, aap rona mat") is read as Hindi, English words stay English.
 - **Voice Lab** (**Voices** button): blend two voices, shift pitch and pace, preview, save. Ten character presets (Teen boy, Teen girl, Child, Hero, Villain, Elder, Grandma, narrators…) are built in. Every voice can be copied as a `VT1.…` code and imported elsewhere.
 - **Claude connector**: the Cloudflare Worker gives Claude a private connector to design voices and share scripts that open ready to play on your site (see below). [`server/`](server/README.md) renders the same voices to WAV files on Node.
 - **Read-along**: the sentence being spoken is lit; click any sentence to jump to it.
 - **Save audio**: export the whole piece as a 24 kHz mono WAV.
+
+### Learned voices and acted emotions
+
+A Kokoro voice is a table of style vectors: the first half of each sets the timbre, the second half drives the prosody predictor (how long each sound lasts, the pitch curve, the energy curve). The learned voices keep a blended stock timbre and replace the delivery: recordings of narrators were separated from their music, transcribed, force-aligned word by word, and their real word timings were forced into Kokoro so its predicted pitch and energy could be fitted frame by frame to the performance (128 numbers per voice, under a prior built from all 54 stock voices). On lines held out of the fit, the learned deliveries follow real pitch movement and energy more closely than the best stock voice. Each voice also carries the phrasing measured in its recordings — the poetry narrators (Shayar, Dev) pause about 0.8 s at every comma and line break, the explainer (Josh) barely pauses at all.
+
+Emotions are learned directions in the same delivery half, shared by every voice, fitted to the acoustic profile of acted emotions (pitch level and range, tempo, pause length, vocal effort) relative to each voice's own neutral reading. Because the model performs them, a sad or excited line keeps natural timing and formants instead of being pitch-shifted afterwards. Nothing is uploaded and no new model is downloaded: learned voices and moods are built on the device from the stock tables.
+
+[`tools/voicefit`](tools/voicefit/README.md) has the whole pipeline, including singing (Kokoro's decoder driven by a melody pitch curve and note lengths).
 
 ### Why it sounds less robotic
 
@@ -138,8 +149,9 @@ The download happens once and is cached by the browser. The interface shows prog
 
 ## Limitations
 
-- English voices only (US and UK). Other Kokoro languages need extra phonemizer support that is not included here.
-- No voice cloning, and no control over emotion beyond what punctuation and voice choice give you.
+- English (US, UK, Indian) and Hindi/Hinglish only. Other Kokoro languages need extra phonemizer support that is not included here.
+- No voice cloning: learned voices take a delivery from recordings but their timbre is a blend of Kokoro's own voices.
+- Kokoro's pitch breaks above about 360 Hz, so very high or shouted lines and soprano singing are out of reach.
 - Generation speed depends on the device. WebAssembly on a phone can be slower than real time for long text; playback pauses and resumes as sentences arrive.
 - The first run needs a network connection to download the model.
 - `npm audit` reports advisories on `sharp`, a dependency of `@huggingface/transformers` used only for image processing in Node. It is not part of the browser bundle.
