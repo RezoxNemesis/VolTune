@@ -1,6 +1,7 @@
 import os
 """Render test lines with a voice spec (timbre mix | delivery mix + offset) and measure them."""
 import json, subprocess, numpy as np, torch, soundfile as sf
+from common import PHON
 from fit import model, voice
 
 def mix_table(mix):

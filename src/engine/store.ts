@@ -204,6 +204,9 @@ export async function openStore(): Promise<{ store: ClipStore; persistent: boole
   }
 }
 
+/** Version of the Hindi lexicon and pronunciation rules (hindi.ts, hinglish.ts); part of Hindi plans' keys. */
+export const HINDI_PRONUNCIATION = 2;
+
 /** Stable identifier for a render plan, so identical requests can resume. */
 export async function hashPlan(
   plan: ReadonlyArray<{ text: string; voice: string; speed: number; pauseMs: number; pitch?: number; gain?: number; soft?: number; edge?: number }>,
@@ -213,7 +216,9 @@ export async function hashPlan(
     plan.map((p) => {
       const base = p.pitch || p.gain || p.soft || p.edge ? [p.text, p.voice, p.speed, p.pauseMs, p.pitch ?? 0, p.gain ?? 1, p.soft ?? 0, p.edge ?? 0] : [p.text, p.voice, p.speed, p.pauseMs];
       const q = p as { mood?: string; moodAmount?: number; accent?: string };
-      return q.mood || q.accent ? [...base, q.mood ?? "", q.moodAmount ?? 0, q.accent ?? ""] : base;
+      const keyed = q.mood || q.accent ? [...base, q.mood ?? "", q.moodAmount ?? 0, q.accent ?? ""] : base;
+      // Hindi pronunciation changes with the lexicon and rules: bump HINDI_PRONUNCIATION so old clips are not reused.
+      return /(?:^|\+)h[fm]_/.test(p.voice) ? [...keyed, `hi${HINDI_PRONUNCIATION}`] : keyed;
     }),
   );
   try {

@@ -8,6 +8,22 @@ NAME = sys.argv[1]
 STEPS = int(sys.argv[2]) if len(sys.argv) > 2 else 150
 takes = json.load(open(os.path.join(WORK, 'takes.json')))
 
+def take_stats(t):
+    """Pitch statistics of a take from its saved features (80 frames/s): voiced fraction, median F0 (Hz),
+    interquartile range (semitones) and the share of voiced frame-to-frame jumps over 3 semitones."""
+    f0, per, _ = feats(t['file'])
+    a, b = int(t['words'][0]['ws'] * 80), int(t['words'][-1]['we'] * 80) + 1
+    f, v = f0[a:b], per[a:b] > 0.5
+    if not v.any(): return {'vf': 0.0, 'med': 0.0, 'iqr': 0.0, 'wild': 1.0}
+    st = 12 * np.log2(f[v] / 55.0)
+    jumps = np.abs(np.diff(st)) > 3 if len(st) > 1 else np.zeros(1, bool)
+    q1, q3 = np.percentile(st, [25, 75])
+    return {'vf': float(v.mean()), 'med': float(np.median(f[v])), 'iqr': float(q3 - q1), 'wild': float(jumps.mean())}
+
+# takes.py / align.py do not measure pitch; fill the statistics in from features.py's output
+for _t in takes:
+    if _t.get('aligned') and 'vf' not in _t: _t.update(take_stats(_t))
+
 def clean(t, maxmed=None, minscore=0.6):
     if not t.get('aligned') or t.get('ascore', 0) < minscore: return False
     if t.get('wild', 0) > 0.2 or t.get('vf', 0) < 0.2: return False
