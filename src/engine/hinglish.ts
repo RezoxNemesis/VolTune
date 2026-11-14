@@ -240,7 +240,7 @@ export function transliterateHinglish(text: string, force = false): string {
   const hindiLine = force || onlyHindi || hinglishShare(text) >= 0.34;
   if (!hindiLine && hinglishShare(text) < 0.12) return text;
   // "bacha" is बच्चा (a child) except as a verb: "bacha nahi paaya", "bacha liya" → बचा (saved)
-  const t = hindiLine ? text.replace(/\bbach(?:a|aa)\b(?=\s+(?:nahi|nahin|na|liya|li|lo|le|lena|paaya|paya|payi|paayi|sakta|sakti|sakte|sake|diya|dena|lunga|lungi|lenge))/gi, "बचा") : text;
+  const t = hindiLine ? text.replace(/\bbach(?:a|aa)\b(?=\s+(?:nahi|nahin|na|liya|li|lo|le|lena|leta|leti|lete|loon|lu|lijiye|paaya|paya|payi|paayi|paa|pa|paata|paati|paate|pata|pati|pate|paaun|paaunga|paaungi|paoge|paaoge|paaye|paye|sakta|sakti|sakte|sake|sako|sakoon|sakun|sakenge|diya|dena|do|de|lunga|lungi|lenge|chuke|chuka|chuki)\b)/gi, "बचा") : text;
   return t.replace(/[A-Za-z][A-Za-z']*/g, (w) => romanToDevanagari(w, hindiLine) ?? w);
 }
 

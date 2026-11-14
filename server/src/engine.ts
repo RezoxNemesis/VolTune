@@ -12,8 +12,13 @@ import { pipeline } from "node:stream/promises";
 import * as ort from "onnxruntime-node";
 import { phonemize } from "phonemizer";
 import { buildPlan, type PlanItem, type PlanOptions } from "../../src/engine/plan";
-import { synthesize, VOICES_URL, type ModelRunner } from "../../src/engine/synth";
-import { VoiceTables, type CustomVoice } from "../../src/engine/voicebank";
+import { shape, synthesize, VOICES_URL, type ModelRunner } from "../../src/engine/synth";
+import { mixLang, parseMix, VoiceTables, type CustomVoice } from "../../src/engine/voicebank";
+import { hinglishToDevanagari } from "../../src/engine/hinglish";
+import { acting, makeSpeaker, say, seedFor, type StudioModels } from "../../src/engine/studio";
+import { referenceLine } from "../../src/engine/studio_refs";
+import { devanagariLoanwords } from "../../src/engine/studio_loanwords";
+import { loadStudio, SpeakerCache } from "./studio";
 import { encodeWav, mouthEnvelope, SAMPLE_RATE, stitch } from "../../src/engine/audio";
 import { DEFAULT_VOICE } from "../../src/engine/voices";
 
@@ -95,11 +100,30 @@ export interface Rendered {
   plan: PlanItem[];
 }
 
+export interface StudioLineInfo {
+  text: string;
+  voice: string;
+  mood?: string;
+  moodAmount?: number;
+  gain?: number;
+  soft?: number;
+  edge?: number;
+}
+
+/** "studio" (Chatterbox, natural acting, ~1.5 GB download) or "standard" (Kokoro, fast, small). */
+export type EngineKind = "studio" | "standard";
+export const defaultEngine = (): EngineKind => (process.env.VOLTUNE_ENGINE === "studio" ? "studio" : "standard");
+
 export class Engine {
   private session: ort.InferenceSession | null = null;
   private loading: Promise<ort.InferenceSession> | null = null;
+  private studio: Promise<StudioModels> | null = null;
+  private speakers = new SpeakerCache(dataDir());
   readonly tables = new VoiceTables(loadVoice);
-  constructor(private log: (s: string) => void = () => {}) {}
+  constructor(
+    private log: (s: string) => void = () => {},
+    readonly kind: EngineKind = defaultEngine(),
+  ) {}
 
   private async ensure(): Promise<ort.InferenceSession> {
     if (this.session) return this.session;
@@ -124,10 +148,40 @@ export class Engine {
     return new Float32Array((out.audio ?? out.waveform ?? Object.values(out)[0]!).data as Float32Array);
   };
 
+  /**
+   * One line on the studio engine: the voice and mood become a speaker (a Kokoro reference clip, encoded once
+   * and cached), Chatterbox acts the line, and VolTune's level and colour marks are applied on top.
+   * A take whose words did not all come out is tried again with another seed.
+   */
+  async studioLine(it: StudioLineInfo): Promise<Float32Array> {
+    this.studio ??= loadStudio(dataDir(), this.log);
+    const models = await this.studio;
+    const mix = parseMix(it.voice);
+    const lang = mixLang(mix);
+    const female = /^[a-z]f_/.test(mix[0]?.[0] ?? it.voice);
+    const mood = it.mood;
+    const key = `v1-${seedFor(it.voice, mood ?? "neutral").toString(36)}`;
+    const spk = await this.speakers.get(key, async () => {
+      this.log(`Making the studio speaker for ${it.voice}${mood ? ` (${mood})` : ""} …`);
+      const job = { index: 0, text: referenceLine(lang, mood, female), voice: it.voice, mood, moodAmount: 1, speed: 1 } as Parameters<typeof synthesize>[0];
+      return makeSpeaker(models, await synthesize(job, { phonemize, tables: this.tables, run: this.runner }));
+    });
+    // A Hindi line is read best in one script: Hinglish to Devanagari, common English words too.
+    const text = lang === "h" ? devanagariLoanwords(hinglishToDevanagari(it.text)) : it.text;
+    const act = acting(mood, it.moodAmount ?? 1);
+    let first: Float32Array | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const r = await say(models, text, spk, { lang: lang === "h" ? "hi" : "en", ...act, seed: seedFor(it.voice, it.text, mood ?? "", String(attempt)) });
+      if (r.complete) return shape(r.pcm, it);
+      first ??= r.pcm;
+    }
+    return shape(first!, it);
+  }
+
   /** Render a script (dialogue) or plain text (speak) to one stitched clip plus its timeline. */
   async render(
     input: string,
-    o: Partial<PlanOptions> & { customs?: readonly CustomVoice[] } = {},
+    o: Partial<PlanOptions> & { customs?: readonly CustomVoice[]; engine?: EngineKind } = {},
     onProgress?: (done: number, total: number) => void,
   ): Promise<Rendered> {
     const opts: PlanOptions = {
@@ -138,14 +192,19 @@ export class Engine {
       cast: o.cast ?? {},
       customs: o.customs ?? [],
     };
-    const { items, cast } = buildPlan(input, opts);
+    const planned = buildPlan(input, opts);
+    const cast = planned.cast;
+    // The studio engine reads a whole line at once (its own phrasing and pauses), so phrase chunks of one
+    // line in one voice and mood are joined again; Kokoro keeps the short chunks it is best at.
+    const kind = o.engine ?? this.kind;
+    const items = kind === "studio" ? joinForStudio(planned.items) : planned.items;
     if (!items.length) throw new Error("Nothing to say: the text is empty after removing directions.");
     const parts: Array<{ pcm: Float32Array; start: number }> = [];
     const timeline: Rendered["timeline"] = [];
     let t = 0;
     for (let i = 0; i < items.length; i++) {
       const it = items[i]!;
-      const pcm = await synthesize({ index: i, ...it }, { phonemize, tables: this.tables, run: this.runner });
+      const pcm = kind === "studio" ? await this.studioLine(it) : await synthesize({ index: i, ...it }, { phonemize, tables: this.tables, run: this.runner });
       const dur = pcm.length / SAMPLE_RATE;
       timeline.push({ index: i, speaker: it.speaker, text: it.text, voice: it.voice, tags: it.tags, start: r3(t), end: r3(t + dur) });
       parts.push({ pcm, start: t });
@@ -157,6 +216,34 @@ export class Engine {
 }
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Join consecutive plan items of the same turn, voice and mood (up to ~280 characters) into one line. */
+export function joinForStudio(items: PlanItem[]): PlanItem[] {
+  const out: PlanItem[] = [];
+  for (const it of items) {
+    const prev = out[out.length - 1];
+    const same =
+      prev &&
+      prev.turn === it.turn &&
+      prev.speaker === it.speaker &&
+      prev.voice === it.voice &&
+      prev.mood === it.mood &&
+      prev.moodAmount === it.moodAmount &&
+      (prev.gain ?? 1) === (it.gain ?? 1) &&
+      (prev.soft ?? 0) === (it.soft ?? 0) &&
+      prev.pauseMs < 1200 &&
+      prev.text.length + it.text.length < 280 &&
+      !/^(?:Haha|Heh|Hehe|Hhh|Oh|Ugh|Ahem|Hmm|Hm|Aaah|Haaah|Wow)[.!]*$/.test(it.text) &&
+      !/^(?:Haha|Heh|Hehe|Hhh|Oh|Ugh|Ahem|Hmm|Hm|Aaah|Haaah|Wow)[.!]*$/.test(prev.text);
+    if (same) {
+      const joint = /[.!?…,;:]$/.test(prev.text) ? " " : ", ";
+      out[out.length - 1] = { ...prev, text: prev.text + joint + it.text, pauseMs: it.pauseMs };
+    } else out.push({ ...it });
+  }
+  return out;
+}
+
+
 
 export function wavBytes(r: Rendered): Uint8Array {
   return new Uint8Array(encodeWav(r.pcm, r.sampleRate));

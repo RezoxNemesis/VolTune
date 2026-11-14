@@ -192,6 +192,7 @@ function buildServer(base: string): McpServer {
     rhythm: z.number().min(0.5).max(2).optional().describe("Pause length multiplier, default 1"),
     lipsync_fps: z.number().int().min(10).max(60).optional().describe("Frame rate for the lip-sync tracks, default 30"),
     include_audio: z.boolean().optional().describe("Also return the WAV inline as an audio block (large). Default false: use audio_url."),
+    engine: z.enum(["studio", "standard"]).optional().describe("studio: natural acted delivery (Chatterbox, slower, ~1.5 GB download on first use; English and Hindi voices). standard: Kokoro, fast. Default from VOLTUNE_ENGINE, else standard."),
   };
 
   async function respond(r: Rendered, a: { lipsync_fps?: number; include_audio?: boolean }) {
@@ -222,7 +223,7 @@ function buildServer(base: string): McpServer {
     },
     async (a) => {
       try {
-        const r = await serial(() => engine.render(a.script, { mode: "dialogue", cast: a.cast ?? {}, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms() }));
+        const r = await serial(() => engine.render(a.script, { mode: "dialogue", cast: a.cast ?? {}, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms(), engine: a.engine }));
         return await respond(r, a);
       } catch (e) {
         return fail(e);
@@ -239,7 +240,7 @@ function buildServer(base: string): McpServer {
     },
     async (a) => {
       try {
-        const r = await serial(() => engine.render(a.text, { mode: "speak", voice: a.voice, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms() }));
+        const r = await serial(() => engine.render(a.text, { mode: "speak", voice: a.voice, speed: a.pace, pauseScale: a.rhythm, customs: loadCustoms(), engine: a.engine }));
         return await respond(r, a);
       } catch (e) {
         return fail(e);

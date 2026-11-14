@@ -29,6 +29,16 @@ Emotions are learned directions in the same delivery half, shared by every voice
 
 [`tools/voicefit`](tools/voicefit/README.md) has the whole pipeline, including singing (Kokoro's decoder driven by a melody pitch curve and note lengths).
 
+### Studio voices: natural acting (PC)
+
+The studio engine makes every English and Hindi VolTune voice sound like a person acting the line rather than a model reading it: natural rhythm, breaths, pauses and much better Hindi pronunciation. It runs [Chatterbox Multilingual](https://huggingface.co/onnx-community/chatterbox-multilingual-ONNX) (Resemble AI, MIT licence) through ONNX Runtime. VolTune still decides who is speaking: for each voice and mood it renders a short reference line with Kokoro (`src/engine/studio_refs.ts`), and Chatterbox takes the timbre and the acting from that clip. No real person's voice is involved.
+
+- CLI: `voltune render scene.txt -o scene.wav --studio` (or `VOLTUNE_ENGINE=studio`); connector: `engine: "studio"` on `perform_script` and `speak`. VideoStudio 2 desktop uses it for every line once it is installed (`voice.studio {install:true}`).
+- First use downloads about 1.5 GB (pinned revision) and makes a small speaker file per voice and mood (`~/.voltune/studio/speakers`). It needs a PC: about 2 GB of memory, and a few seconds per line on 8 cores.
+- Moods set how strongly a line is acted (exaggeration) and its pace (guidance); plain directions such as `is dialogue ko emotional hoke bolna hai "…"` work here too.
+- Chatterbox's own alignment checks are kept (`src/engine/studio.ts`): attention from three of its heads follows the text, so a line stops when its words are done and babble after them is cut. The heads' projections are exposed by a small edit to the language-model graph made on first use.
+- Phones and the website keep the standard engine.
+
 ### Why it sounds less robotic
 
 - Text is cleaned first: markdown, links and code are dropped, abbreviations (`Dr.`, `vs.`, `e.g.`) are expanded, quotes and ellipses are normalised.
@@ -150,6 +160,7 @@ The download happens once and is cached by the browser. The interface shows prog
 ## Limitations
 
 - English (US, UK, Indian) and Hindi/Hinglish only. Other Kokoro languages need extra phonemizer support that is not included here.
+- The studio engine is for PCs (≈1.5 GB download, ≈2 GB memory) and is slower than the standard one; very short exclamations are its weakest lines.
 - No voice cloning: learned voices take a delivery from recordings but their timbre is a blend of Kokoro's own voices.
 - Kokoro's pitch breaks above about 360 Hz, so very high or shouted lines and soprano singing are out of reach.
 - Generation speed depends on the device. WebAssembly on a phone can be slower than real time for long text; playback pauses and resumes as sentences arrive.

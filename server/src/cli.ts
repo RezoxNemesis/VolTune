@@ -8,6 +8,9 @@ import { encodeVoiceCode, type CustomVoice } from "../../src/engine/voicebank";
 import { catalogue, createVoice, deleteVoice, importVoice, loadCustoms, voiceCode } from "./voices";
 import { SCRIPT_HELP } from "../../src/engine/scripthelp";
 
+/** Flags that never take a value. */
+const SWITCHES = new Set(["studio", "speak", "standard"]);
+
 function args(argv: string[]) {
   const pos: string[] = [];
   const flags: Record<string, string | true> = {};
@@ -16,7 +19,7 @@ function args(argv: string[]) {
     if (a.startsWith("--") || (a.startsWith("-") && a.length === 2 && isNaN(Number(a)))) {
       const k = a.replace(/^-+/, "");
       const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (next !== undefined && !next.startsWith("--") && !SWITCHES.has(k)) {
         flags[k] = next;
         i++;
       } else flags[k] = true;
@@ -36,7 +39,7 @@ function parseCast(s: string | true | undefined): Record<string, string> {
   );
 }
 
-const USAGE = `voltune — render VolTune voices from a terminal.\n\n  voltune render script.txt -o scene.wav [--speak] [--voice af_heart] [--pace 1] [--rhythm 1]\n                            [--cast "Maya=Teen girl,Jon=am_michael"] [--json timeline.json] [--lipsync 30]\n  voltune say "Hello there" -o hi.wav [--voice "Teen boy"]\n  voltune voices                       list stock voices, presets and custom voices\n  voltune voice-create "Rusty" "am_fenrir*0.7+bm_george*0.3" [--pitch -1.5] [--speed 0.95] [--tone "gravelly"]\n  voltune voice-import VT1.xxxx        save a voice copied from the app\n  voltune voice-code "Rusty"           print a code to paste into the app (Voice Lab → Import)\n  voltune voice-delete "Rusty"\n  voltune help-script                  the script syntax\n\nFor animation:\n  voltune scene bundle.json -o out/    render a scene (bundle from the VolTune site, or a script file):\n                                       scene.wav, lines/*.wav, scene.json (timeline + voice codes),\n                                       lipsync.json (mouth open + shape per frame), spectrogram.png, report.md\n  voltune analyze audio.wav [--timeline scene.json] [-o dir]   pitch, pace, loudness, clarity (transcript), delivery checks\n  voltune avcheck video.mp4 --scene out/ [--mouth drawn.json]  audio offset/drift in the video and mouth-vs-speech match\n  voltune pull https://voltune.<you>.workers.dev [--script <id>] -o bundle.json`;
+const USAGE = `voltune — render VolTune voices from a terminal.\n\n  voltune render script.txt -o scene.wav [--speak] [--studio] [--voice af_heart] [--pace 1] [--rhythm 1]\n                            [--cast "Maya=Teen girl,Jon=am_michael"] [--json timeline.json] [--lipsync 30]\n  voltune say "Hello there" -o hi.wav [--voice "Teen boy"]\n  voltune voices                       list stock voices, presets and custom voices\n  voltune voice-create "Rusty" "am_fenrir*0.7+bm_george*0.3" [--pitch -1.5] [--speed 0.95] [--tone "gravelly"]\n  voltune voice-import VT1.xxxx        save a voice copied from the app\n  voltune voice-code "Rusty"           print a code to paste into the app (Voice Lab → Import)\n  voltune voice-delete "Rusty"\n  voltune help-script                  the script syntax\n\n  --studio   natural acting with the studio engine (Chatterbox, ~1.5 GB download once, slower);\n             also VOLTUNE_ENGINE=studio. Works for English and Hindi voices.\n\nFor animation:\n  voltune scene bundle.json -o out/    render a scene (bundle from the VolTune site, or a script file):\n                                       scene.wav, lines/*.wav, scene.json (timeline + voice codes),\n                                       lipsync.json (mouth open + shape per frame), spectrogram.png, report.md\n  voltune analyze audio.wav [--timeline scene.json] [-o dir]   pitch, pace, loudness, clarity (transcript), delivery checks\n  voltune avcheck video.mp4 --scene out/ [--mouth drawn.json]  audio offset/drift in the video and mouth-vs-speech match\n  voltune pull https://voltune.<you>.workers.dev [--script <id>] -o bundle.json`;
 
 const num = (v: string | true | undefined, d: number) => (typeof v === "string" && !isNaN(Number(v)) ? Number(v) : d);
 
@@ -44,6 +47,8 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const { pos, flags } = args(rest);
   const log = (s: string) => process.stderr.write(s + "\n");
+  if (flags.studio) process.env.VOLTUNE_ENGINE = "studio";
+  if (flags.standard) process.env.VOLTUNE_ENGINE = "standard";
   switch (cmd) {
     case "render":
     case "say": {
