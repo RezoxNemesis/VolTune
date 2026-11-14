@@ -38,16 +38,21 @@ type Spec = Partial<Omit<Delivery, "tags">>;
 
 // Emotions are acted by the model (learned.ts); `speed` tops up the tempo change the learned direction only half reaches.
 const STYLES: Array<[string[], Spec]> = [
-  [["whisper", "whispering", "whispers", "whispered", "hushed", "murmur", "murmuring", "murmurs", "under breath", "under her breath", "under his breath", "barely audible", "phusphusa kar", "phusphusate hue", "फुसफुसा कर", "फुसफुसाते हुए"], { speed: 0.92, pitch: -0.3, gain: 0.55, soft: 0.85, pause: 1.15 }],
-  [["softly", "quietly", "soft", "quiet", "gently", "gentle", "dheere se", "dhire se", "धीरे से"], { speed: 0.94, pitch: -0.2, gain: 0.75, soft: 0.35, pause: 1.15 }],
-  [["tender", "tenderly", "lovingly", "loving", "affectionately", "fondly", "sweetly", "pyaar se", "pyar se", "mamta se", "प्यार से", "ममता से"], { mood: "loving", speed: 0.95, gain: 0.85, soft: 0.2, pause: 1.15 }],
-  [["shout", "shouting", "shouts", "yell", "yelling", "yells", "scream", "screaming", "screams", "loud", "loudly", "bellowing", "calling out", "calls out", "chilla kar", "chillate hue", "cheekh kar", "चिल्ला कर", "चिल्लाते हुए", "चीख कर"], { mood: "excited", moodAmount: 0.7, pitch: 0.5, gain: 1.45, edge: 0.55, end: "!" }],
-  [["angry", "angrily", "furious", "furiously", "annoyed", "irritated", "mad", "frustrated", "snapping", "snaps", "fuming", "gusse mein", "gusse me", "gusse se", "gussa", "naraz", "naraaz", "गुस्से में", "गुस्सा", "नाराज़", "नाराज"], { mood: "angry", speed: 1.05, gain: 1.2, edge: 0.3, end: "!" }],
+  [["whisper", "whispering", "whispers", "whispered", "hushed", "murmur", "murmuring", "murmurs", "under breath", "under her breath", "under his breath", "barely audible", "phusphusa kar", "phusphusate hue", "phusphusake", "फुसफुसा कर", "फुसफुसाते हुए"], { speed: 0.92, pitch: -0.3, gain: 0.55, soft: 0.85, pause: 1.15 }],
+  [["softly", "quietly", "soft", "quiet", "gently", "gentle", "dheere se", "dhire se", "dheemi awaaz", "dheemi", "halki awaaz", "धीरे से", "धीमी आवाज़"], { speed: 0.94, pitch: -0.2, gain: 0.75, soft: 0.35, pause: 1.15 }],
+  [["tender", "tenderly", "lovingly", "loving", "affectionately", "fondly", "sweetly", "romantic", "romantically", "pyaar se", "pyar se", "pyaar bhari", "pyar bhari", "pyaar", "pyar", "mamta se", "mamta", "प्यार से", "प्यार भरी", "ममता से"], { mood: "loving", speed: 0.95, gain: 0.85, soft: 0.2, pause: 1.15 }],
+  [["shout", "shouting", "shouts", "yell", "yelling", "yells", "scream", "screaming", "screams", "loud", "loudly", "bellowing", "calling out", "calls out", "chilla kar", "chillate hue", "chilla ke", "cheekh kar", "cheekh ke", "zor se", "chillana", "चिल्ला कर", "चिल्लाते हुए", "चीख कर", "ज़ोर से", "जोर से"], { mood: "excited", moodAmount: 0.7, pitch: 0.5, gain: 1.45, edge: 0.55, end: "!" }],
+  [["angry", "angrily", "furious", "furiously", "annoyed", "irritated", "mad", "frustrated", "snapping", "snaps", "fuming", "gusse mein", "gusse me", "gusse se", "gusse", "gussa", "gusa", "naraz", "naraaz", "chidh kar", "chidh ke", "krodh", "गुस्से में", "गुस्सा", "नाराज़", "नाराज", "क्रोध"], { mood: "angry", speed: 1.05, gain: 1.2, edge: 0.3, end: "!" }],
   [["excited", "excitedly", "thrilled", "eager", "eagerly", "enthusiastic", "elated", "josh mein", "josh se", "utsah se", "जोश में", "उत्साह से"], { mood: "excited", speed: 1.07, gain: 1.1, end: "!" }],
-  [["happy", "happily", "cheerful", "cheerfully", "joyful", "delighted", "beaming", "grinning", "smiling", "khush", "khushi se", "khushi khushi", "ख़ुश", "खुश", "खुशी से", "ख़ुशी से"], { mood: "happy", speed: 1.05, gain: 1.05 }],
-  [["laughing", "through laughter", "amused", "giggling", "chuckling", "hanste hue", "हँसते हुए", "हंसते हुए"], { mood: "happy", moodAmount: 0.8, pitch: 0.3, gain: 1.05 }],
-  [["sad", "sadly", "upset", "hurt", "heartbroken", "grieving", "melancholy", "sorrowful", "udaas", "udas", "udaasi se", "dukhi", "dukh se", "उदास", "दुखी", "दुख से"], { mood: "sad", speed: 0.92, gain: 0.85, pause: 1.35, end: "." }],
-  [["crying", "tearful", "tearfully", "sobbing", "choked up", "weeping", "in tears", "rote hue", "rote huye", "rote rote", "ro kar", "rokar", "रोते हुए", "रोते-रोते", "रो कर"], { mood: "crying", speed: 0.89, gain: 0.8, soft: 0.25, pause: 1.45, end: "." }],
+  [["happy", "happily", "cheerful", "cheerfully", "joyful", "delighted", "beaming", "grinning", "smiling", "khush", "khushi se", "khushi khushi", "khushi", "muskurate hue", "muskura ke", "ख़ुश", "खुश", "खुशी से", "ख़ुशी से", "मुस्कुराते हुए"], { mood: "happy", speed: 1.05, gain: 1.05 }],
+  [["laughing", "through laughter", "amused", "giggling", "chuckling", "playful", "playfully", "teasing", "hanste hue", "hans ke", "hans kar", "mazaak mein", "mazak mein", "हँसते हुए", "हंसते हुए", "मज़ाक में"], { mood: "happy", moodAmount: 0.8, pitch: 0.3, gain: 1.05 }],
+  [["sad", "sadly", "upset", "hurt", "heartbroken", "grieving", "melancholy", "sorrowful", "udaas", "udas", "udaasi se", "udaasi", "dukhi", "dukh se", "dukh", "उदास", "दुखी", "दुख से"], { mood: "sad", speed: 0.92, gain: 0.85, pause: 1.35, end: "." }],
+  [["crying", "tearful", "tearfully", "sobbing", "choked up", "weeping", "in tears", "rote hue", "rote huye", "rote rote", "ro kar", "rokar", "ro ke", "rote", "rona", "रोते हुए", "रोते-रोते", "रो कर"], { mood: "crying", speed: 0.89, gain: 0.8, soft: 0.25, pause: 1.45, end: "." }],
+  // "emotional hoke bolna hai": moved, close to tears
+  [["emotional", "emotionally", "emotional hoke", "emotional hokar", "bhavuk", "bhaavuk", "bhavuk hoke", "jazbaati", "jazbati", "dil se", "moved", "touched", "emotion", "emotions", "emotion se", "emotion ke saath", "with emotion", "with feeling", "full emotion", "feel karke", "feel kar ke", "भावुक", "भावुक होकर", "इमोशनल", "दिल से"], { mood: "crying", moodAmount: 0.75, speed: 0.92, gain: 0.85, soft: 0.15, pause: 1.35, end: "." }],
+  // Grief and regret: "dard bhari awaaz mein", "pachtawe ke saath", "Kaash…" lines
+  [["regretful", "regret", "remorseful", "guilty", "painful", "in pain", "pained", "dard bhari", "dard bhare", "dard se", "dard", "gham", "gam", "gham se", "afsos", "afsos se", "pachtawa", "pachtava", "pachhtava", "pachtawe", "toote dil se", "toota dil", "dard bhari awaaz", "दर्द", "दर्द भरी", "दर्द से", "ग़म", "गम", "अफ़सोस", "अफसोस", "पछतावा", "पछतावे"], { mood: "sad", moodAmount: 1.2, speed: 0.9, gain: 0.82, soft: 0.2, pause: 1.45, end: "." }],
+  [["sobbing hard", "sisakte hue", "sisak kar", "sisakte huye", "phoot phoot kar", "aansoo", "aansu", "aansuon ke saath", "सिसकते हुए", "फूट फूट कर", "आँसू"], { mood: "crying", moodAmount: 1.3, speed: 0.86, gain: 0.78, soft: 0.3, pause: 1.55, end: "." }],
   [["nervous", "nervously", "anxious", "anxiously", "hesitant", "hesitantly", "unsure", "stammering", "stuttering", "shy", "shyly", "awkward", "awkwardly", "flustered", "embarrassed", "sharmate hue", "शर्माते हुए", "ghabra kar", "घबरा कर"], { mood: "scared", moodAmount: 0.4, pause: 1.25, stammer: true }],
   [["scared", "afraid", "terrified", "frightened", "panicked", "panicking", "fearful", "alarmed", "darr ke", "dar ke", "darte hue", "dara hua", "dari hui", "डर के", "डरते हुए", "डरा हुआ", "डरी हुई"], { mood: "scared", speed: 1.1, gain: 0.95, soft: 0.2, end: "!" }],
   [["calm", "calmly", "warm", "warmly", "kind", "kindly", "reassuring", "soothing", "relaxed", "shaanti se", "shanti se", "शांति से"], { mood: "loving", moodAmount: 0.5, pause: 1.15 }],
@@ -113,11 +118,12 @@ export function readDirection(raw: string): Direction[] {
   }
   if (/^(normal|normally|neutral|plain|back to normal)$/.test(s)) return [{ kind: "reset" }];
   const out: Direction[] = [];
-  // "to Jon, angrily" / "softly and slowly" → look at every phrase.
-  const phrases = s.split(/\s*(?:,|;|\band\b|\bthen\b|\bwhile\b)\s*/).filter(Boolean);
+  // "to Jon, angrily" / "softly and slowly" / "bahut udaas aur dheere se" → look at every phrase.
+  const phrases = s.split(/\s*(?:,|;|\band\b|\bthen\b|\bwhile\b|\baur\b|\bphir\b|\bऔर\b)\s*/).filter(Boolean);
   let matched = false;
   for (const p of phrases) {
-    const words = p.replace(/^(?:a bit|a little|slightly|very|really|so)\s+/, "");
+    const k = intensity(p);
+    const words = p.replace(LESS_RE, "").replace(MORE_RE, "").trim();
     const snd = SOUND_INDEX.get(words);
     if (snd) {
       out.push({ kind: "sound", say: snd.say, delivery: asDelivery(snd.spec, snd.name) });
@@ -125,16 +131,97 @@ export function readDirection(raw: string): Direction[] {
       continue;
     }
     const st = STYLE_INDEX.get(words) ?? STYLE_INDEX.get(words.split(" ").pop() ?? "") ?? STYLE_INDEX.get(words.split(" ")[0] ?? "");
-    if (st) {
-      const d = asDelivery(st, st.name);
-      if (/^(?:a bit|a little|slightly)\s+/.test(p)) Object.assign(d, soften(d, 0.5));
-      if (/^(?:very|really|so)\s+/.test(p)) Object.assign(d, soften(d, 1.5));
+    const found = st ? [st] : findStyles(words);
+    for (const f of found) {
+      const d = asDelivery(f, f.name);
+      if (k !== 1) Object.assign(d, soften(d, k));
       out.push({ kind: "style", delivery: d });
       matched = true;
     }
   }
   if (!matched) out.push({ kind: "action", text: raw.trim() });
   return out;
+}
+
+// Intensity words, English and Hinglish: "a bit sad", "thoda gussa", "bahut emotional", "ekdam dheere se".
+const LESS_RE = /^(?:(?:a bit|a little|slightly|somewhat|kinda|thoda sa|thodi si|thoda|thodi|halka sa|halki si|halka|halki|zara sa|zara|थोड़ा|थोड़ी|हल्का|हल्की|ज़रा)\s+)+/;
+const MORE_RE = /^(?:(?:very|really|so|extremely|super|deeply|truly|totally|bahut|bohot|bahot|bohat|bahut hi|zyada|jyada|kaafi|kafi|ekdam|bilkul|poori tarah|pura|बहुत|ज़्यादा|ज्यादा|काफ़ी|काफी|एकदम|बिल्कुल)\s+)+/;
+function intensity(p: string): number {
+  if (LESS_RE.test(p)) return 0.5;
+  const more = MORE_RE.exec(p);
+  if (more) return /extremely|super|bahut hi|ekdam|bilkul|poori|पूरी|एकदम/.test(more[0]) || more[0].trim().split(/\s+/).length > 1 ? 1.8 : 1.5;
+  return 1;
+}
+
+// Words around a mood that carry no meaning of their own: "(udaas awaaz mein)", "(emotional hoke)", "(in a sad tone)".
+const FILLER = new Set(["hoke", "hokar", "ho", "kar", "ke", "ki", "ka", "ko", "se", "mein", "me", "main", "mai", "wala", "wali", "wale", "andaaz", "andaz", "awaaz", "awaz", "aawaz", "aawaaz", "tone", "voice", "way", "style", "manner", "mood", "with", "in", "a", "an", "the", "like", "sound", "sounding", "saath", "sath", "hue", "huye", "hua", "hui", "bhari", "bhara", "bhare", "आवाज़", "आवाज", "में", "से", "होकर", "होके", "के", "साथ", "अंदाज़"]);
+
+/**
+ * Find moods in free text, forgiving spelling slips ("emtional", "gusee", "udaass"):
+ * whole phrases first, then each meaningful word, matched exactly or within a small edit distance.
+ */
+export function findStyles(text: string): Array<Spec & { name: string }> {
+  const s = clean(text);
+  if (!s) return [];
+  const exact = STYLE_INDEX.get(s);
+  if (exact) return [exact];
+  const words = s.split(" ");
+  const out: Array<Spec & { name: string }> = [];
+  const seen = new Set<string>();
+  const add = (st: (Spec & { name: string }) | undefined) => {
+    if (st && !seen.has(st.name)) {
+      seen.add(st.name);
+      out.push(st);
+    }
+  };
+  for (let i = 0; i < words.length; i++) {
+    // Longest known phrase starting here ("dard bhari awaaz", "rote hue"), else the word itself.
+    let hit: (Spec & { name: string }) | undefined;
+    let used = 1;
+    for (let n = Math.min(4, words.length - i); n >= 2 && !hit; n--) {
+      const st = STYLE_INDEX.get(words.slice(i, i + n).join(" "));
+      if (st) [hit, used] = [st, n];
+    }
+    const w = words[i]!;
+    if (!hit && !FILLER.has(w)) hit = STYLE_INDEX.get(w) ?? fuzzyStyle(w);
+    add(hit);
+    i += used - 1;
+  }
+  return out;
+}
+
+const SINGLE_WORDS = [...STYLE_INDEX.keys()].filter((k) => !k.includes(" "));
+function fuzzyStyle(w: string): (Spec & { name: string }) | undefined {
+  if (w.length < 5 || !/^[a-z]+$/.test(w)) return undefined;
+  const limit = w.length >= 8 ? 2 : 1;
+  let best: string | undefined;
+  let bestD = limit + 1;
+  for (const k of SINGLE_WORDS) {
+    if (Math.abs(k.length - w.length) > limit || k.length < 5) continue;
+    const d = editDistance(w, k, limit);
+    if (d < bestD) [best, bestD] = [k, d];
+  }
+  return best ? STYLE_INDEX.get(best) : undefined;
+}
+
+/** Damerau–Levenshtein distance (adjacent swaps count once), giving up past `limit`. */
+export function editDistance(a: string, b: string, limit = 3): number {
+  const prev2: number[] = [];
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2]! + 1);
+      cur.push(v);
+      rowMin = Math.min(rowMin, v);
+    }
+    if (rowMin > limit) return limit + 1;
+    prev2.splice(0, prev2.length, ...prev);
+    prev = cur;
+  }
+  return prev[b.length]!;
 }
 
 /** Scale a delivery towards (k < 1) or beyond (k > 1) neutral. */
